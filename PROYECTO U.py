@@ -11,7 +11,7 @@ from datetime import datetime
 
 # --- INTERFAZ GRÁFICA ---
 import tkinter as tk
-from tkinter import ttk # <--- IMPORTANTE: De aquí sale el PanedWindow y Treeview
+from tkinter import ttk 
 from tkinter import messagebox, filedialog, colorchooser, CENTER, LEFT, RIGHT, TOP, BOTTOM, BOTH, X, Y, VERTICAL, HORIZONTAL, W, E, END, NW, NO
 
 import ttkbootstrap as tb 
@@ -28,6 +28,8 @@ from openpyxl.styles import Font, Alignment, Border, Side as ExcelSide
 
 # --- GRÁFICAS Y PDF (MATPLOTLIB) ---
 import matplotlib
+
+
 matplotlib.use("TkAgg") # Configura el backend para interfaz gráfica
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -35,7 +37,7 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import numpy as np
 
-# --- ESTOS SON LOS QUE FALTABAN PARA EL PDF ---
+
 import matplotlib.image as mpimg       # Para leer el logo en el PDF
 from matplotlib.patches import Rectangle # Para dibujar los cuadros azules en el PDF
 
@@ -91,7 +93,7 @@ class GestorBaseDatos:
             password TEXT NOT NULL,
             rol TEXT DEFAULT 'OPERADOR',
             nombre_completo TEXT DEFAULT 'Usuario del Sistema',
-            email TEXT DEFAULT 'sin.email@institucion.gob.mx',
+            email TEXT DEFAULT '@unindetec.edu.mx',
             foto_path TEXT DEFAULT '',
             permisos TEXT DEFAULT '{}'
         );
@@ -156,35 +158,32 @@ class GestorBaseDatos:
         try:
             with self.conectar() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM usuarios WHERE usuario = ?", (usuario,))
+            # Búsqueda EXACTA — respeta mayúsculas y minúsculas
+                cursor.execute(
+                    "SELECT * FROM usuarios WHERE usuario = ?",
+                    (usuario.strip(),)
+                )
                 user = cursor.fetchone()
-            
+
                 if not user:
                     return None
-            
+
                 stored_hash = user['password']
-            
-            # ¿Es formato NUEVO? (contiene ":" separando salt:hash)
+
                 if ":" in stored_hash:
                     salt, hash_guardado = stored_hash.split(":", 1)
-                    import hashlib
                     hash_intento = hashlib.pbkdf2_hmac(
-                        'sha256', 
-                        password.encode(), 
-                        salt.encode(), 
+                        'sha256',
+                        password.encode(),
+                        salt.encode(),
                         100000
                     ).hex()
                     valido = (hash_intento == hash_guardado)
                 else:
-                # Formato VIEJO (SHA256 simple) - compatibilidad temporal
-                    import hashlib
                     hash_viejo = hashlib.sha256(password.encode()).hexdigest()
                     valido = (hash_viejo == stored_hash)
-                
-                # ✅ MIGRACIÓN AUTOMÁTICA: Si la contraseña es correcta,
-                # aprovechamos para actualizar al nuevo formato en ese momento
+
                     if valido:
-                        import secrets
                         salt = secrets.token_hex(16)
                         hash_nuevo = hashlib.pbkdf2_hmac(
                             'sha256', password.encode(), salt.encode(), 100000
@@ -192,17 +191,17 @@ class GestorBaseDatos:
                         nuevo_stored = f"{salt}:{hash_nuevo}"
                         conn.execute(
                             "UPDATE usuarios SET password = ? WHERE usuario = ?",
-                            (nuevo_stored, usuario)
+                            (nuevo_stored, usuario.strip())
                         )
                         conn.commit()
                         print(f"✅ Contraseña de {usuario} migrada al nuevo formato")
-            
+
                 return dict(user) if valido else None
-            
+
         except Exception as e:
             print(f"Error en login: {e}")
             return None
-
+        
     def get_config(self, clave):
         """Recupera configuraciones (Ruta de Logo, Título App, etc.)"""
         try:
@@ -244,179 +243,710 @@ class GestorBaseDatos:
             print(f"Error SQL (EXEC): {e}")
             raise e # Lanzamos el error para que la interfaz muestre el mensaje
 class GestorTemas:
-    """Clase para gestionar temas personalizados"""
-    
-    # Temas Predefinidos
     TEMAS_PREDEFINIDOS = {
         "Azul Profesional": {
-            "color_primario": "#1F4E79",
+            "color_primario":   "#1F4E79",
             "color_secundario": "#4472C4",
-            "color_acento": "#00B0F0",
-            "color_fondo": "#FFFFFF",
-            "color_texto": "#000000",
-            "tema_bootstrap": "flatly"
+            "color_acento":     "#00B0F0",
+            "color_fondo":      "#FFFFFF",
+            "color_texto":      "#000000",
+            "tema_bootstrap":   "flatly"
         },
         "Verde Moderno": {
-            "color_primario": "#2E7D32",
+            "color_primario":   "#2E7D32",
             "color_secundario": "#66BB6A",
-            "color_acento": "#4CAF50",
-            "color_fondo": "#FAFAFA",
-            "color_texto": "#212121",
-            "tema_bootstrap": "minty"
+            "color_acento":     "#4CAF50",
+            "color_fondo":      "#FAFAFA",
+            "color_texto":      "#212121",
+            "tema_bootstrap":   "minty"
         },
         "Oscuro": {
-            "color_primario": "#212121",
+            "color_primario":   "#212121",
             "color_secundario": "#424242",
-            "color_acento": "#FFC107",
-            "color_fondo": "#303030",
-            "color_texto": "#FFFFFF",
-            "tema_bootstrap": "darkly"
+            "color_acento":     "#FFC107",
+            "color_fondo":      "#303030",
+            "color_texto":      "#FFFFFF",
+            "tema_bootstrap":   "darkly"
         },
         "Rojo Corporativo": {
-            "color_primario": "#C00000",
+            "color_primario":   "#C00000",
             "color_secundario": "#E74C3C",
-            "color_acento": "#FF6B6B",
-            "color_fondo": "#FFFFFF",
-            "color_texto": "#2C3E50",
-            "tema_bootstrap": "journal"
+            "color_acento":     "#FF6B6B",
+            "color_fondo":      "#FFFFFF",
+            "color_texto":      "#2C3E50",
+            "tema_bootstrap":   "journal"
         },
         "Morado Creativo": {
-            "color_primario": "#6A1B9A",
+            "color_primario":   "#6A1B9A",
             "color_secundario": "#9C27B0",
-            "color_acento": "#BA68C8",
-            "color_fondo": "#F5F5F5",
-            "color_texto": "#212121",
-            "tema_bootstrap": "pulse"
+            "color_acento":     "#BA68C8",
+            "color_fondo":      "#F5F5F5",
+            "color_texto":      "#212121",
+            "tema_bootstrap":   "pulse"
         },
         "Naranja Energético": {
-            "color_primario": "#E65100",
+            "color_primario":   "#E65100",
             "color_secundario": "#FF6F00",
-            "color_acento": "#FFB300",
-            "color_fondo": "#FFFFFF",
-            "color_texto": "#212121",
-            "tema_bootstrap": "sandstone"
+            "color_acento":     "#FFB300",
+            "color_fondo":      "#FFFFFF",
+            "color_texto":      "#212121",
+            "tema_bootstrap":   "sandstone"
         }
     }
-    
+
     @staticmethod
     def get_tema_actual(db_manager):
-        """Obtener tema actual de la base de datos"""
-        tema = {
-            "color_primario": db_manager.get_config("TEMA_COLOR_PRIMARIO") or "#1F4E79",
+        return {
+            "color_primario":   db_manager.get_config("TEMA_COLOR_PRIMARIO")   or "#1F4E79",
             "color_secundario": db_manager.get_config("TEMA_COLOR_SECUNDARIO") or "#4472C4",
-            "color_acento": db_manager.get_config("TEMA_COLOR_ACENTO") or "#00B0F0",
-            "color_fondo": db_manager.get_config("TEMA_COLOR_FONDO") or "#FFFFFF",
-            "color_texto": db_manager.get_config("TEMA_COLOR_TEXTO") or "#000000",
-            "tema_bootstrap": db_manager.get_config("TEMA_BOOTSTRAP") or "flatly"
+            "color_acento":     db_manager.get_config("TEMA_COLOR_ACENTO")     or "#00B0F0",
+            "color_fondo":      db_manager.get_config("TEMA_COLOR_FONDO")      or "#FFFFFF",
+            "color_texto":      db_manager.get_config("TEMA_COLOR_TEXTO")      or "#000000",
+            "tema_bootstrap":   db_manager.get_config("TEMA_BOOTSTRAP")        or "flatly"
         }
-        return tema
-    
+
     @staticmethod
     def guardar_tema(db_manager, tema):
-        """Guardar tema en la base de datos"""
-        db_manager.set_config("TEMA_COLOR_PRIMARIO", tema["color_primario"])
+        db_manager.set_config("TEMA_COLOR_PRIMARIO",   tema["color_primario"])
         db_manager.set_config("TEMA_COLOR_SECUNDARIO", tema["color_secundario"])
-        db_manager.set_config("TEMA_COLOR_ACENTO", tema["color_acento"])
-        db_manager.set_config("TEMA_COLOR_FONDO", tema["color_fondo"])
-        db_manager.set_config("TEMA_COLOR_TEXTO", tema["color_texto"])
-        db_manager.set_config("TEMA_BOOTSTRAP", tema["tema_bootstrap"])
+        db_manager.set_config("TEMA_COLOR_ACENTO",     tema["color_acento"])
+        db_manager.set_config("TEMA_COLOR_FONDO",      tema["color_fondo"])
+        db_manager.set_config("TEMA_COLOR_TEXTO",      tema["color_texto"])
+        db_manager.set_config("TEMA_BOOTSTRAP",        tema["tema_bootstrap"])
 
+    @staticmethod
+    def _luminancia(hex_color):
+        """Calcula si el color es claro u oscuro"""
+        try:
+            h = hex_color.lstrip("#")
+            r, g, b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
+            return (0.299*r + 0.587*g + 0.114*b) / 255
+        except:
+            return 1.0
+
+    @staticmethod
+    def aplicar_estilos_completos(root, tema):
+        """
+        Aplica el tema a TODO el sistema:
+        1. Cambia el tema bootstrap base
+        2. Sobreescribe colores en ttk.Style para cada widget
+        """
+        c_prim  = tema["color_primario"]
+        c_sec   = tema["color_secundario"]
+        c_acent = tema["color_acento"]
+        c_fondo = tema["color_fondo"]
+        c_texto = tema["color_texto"]
+        t_boot  = tema["tema_bootstrap"]
+
+        # Texto legible sobre fondo primario
+        txt_prim = "#FFFFFF" if GestorTemas._luminancia(c_prim) < 0.5 else "#000000"
+        # Texto legible sobre fondo general
+        txt_fnd  = c_texto
+
+        try:
+            # 1. CAMBIAR TEMA BOOTSTRAP (maneja la base de toda la UI)
+            root.style.theme_use(t_boot)
+        except Exception as e:
+            print(f"Error cambiando tema bootstrap: {e}")
+
+        style = ttk.Style()
+
+        # 2. FONDO DE LA VENTANA PRINCIPAL
+        try:
+            root.configure(bg=c_fondo)
+        except:
+            pass
+
+        # 3. ESTILOS GLOBALES
+        style.configure(".",
+                         background=c_fondo,
+                         foreground=txt_fnd,
+                         bordercolor=c_sec,
+                         darkcolor=c_prim,
+                         lightcolor=c_sec,
+                         troughcolor=c_fondo,
+                         selectbackground=c_prim,
+                         selectforeground=txt_prim,
+                         insertcolor=c_texto,
+                         font=("Segoe UI", 10))
+
+        # 4. FRAMES Y CONTENEDORES
+        style.configure("TFrame",      background=c_fondo)
+        style.configure("TLabelframe", background=c_fondo, bordercolor=c_sec)
+        style.configure("TLabelframe.Label",
+                         background=c_fondo,
+                         foreground=c_prim,
+                         font=("Segoe UI", 10, "bold"))
+
+        # 5. ETIQUETAS
+        style.configure("TLabel", background=c_fondo, foreground=txt_fnd)
+
+        # 6. BOTONES
+        style.configure("TButton",
+                         background=c_prim,
+                         foreground=txt_prim,
+                         borderwidth=0,
+                         focusthickness=2,
+                         padding=6,
+                         font=("Segoe UI", 10, "bold"))
+        style.map("TButton",
+                  background=[("active",   c_sec),
+                               ("pressed",  c_prim),
+                               ("disabled", "#CCCCCC")],
+                  foreground=[("active",   txt_prim),
+                               ("disabled", "#888888")])
+
+        # 7. ENTRADAS DE TEXTO
+        style.configure("TEntry",
+                         fieldbackground="#FFFFFF" if GestorTemas._luminancia(c_fondo) > 0.5 else "#404040",
+                         foreground=txt_fnd,
+                         bordercolor=c_sec,
+                         insertcolor=c_texto)
+        style.map("TEntry",
+                  bordercolor=[("focus", c_acent)],
+                  lightcolor=[("focus", c_acent)],
+                  darkcolor=[("focus",  c_acent)])
+
+        # 8. COMBOBOX
+        style.configure("TCombobox",
+                         fieldbackground="#FFFFFF" if GestorTemas._luminancia(c_fondo) > 0.5 else "#404040",
+                         background=c_prim,
+                         foreground=txt_fnd,
+                         selectbackground=c_prim,
+                         selectforeground=txt_prim,
+                         arrowcolor=c_prim)
+        style.map("TCombobox",
+                  fieldbackground=[("readonly", c_fondo)],
+                  bordercolor=[("focus", c_acent)])
+
+        # 9. TREEVIEW (TABLAS)
+        style.configure("Treeview",
+                         background="#FFFFFF" if GestorTemas._luminancia(c_fondo) > 0.5 else "#3a3a3a",
+                         foreground=txt_fnd,
+                         fieldbackground="#FFFFFF" if GestorTemas._luminancia(c_fondo) > 0.5 else "#3a3a3a",
+                         rowheight=30)
+        style.configure("Treeview.Heading",
+                         background=c_prim,
+                         foreground=txt_prim,
+                         font=("Segoe UI", 10, "bold"),
+                         relief="flat")
+        style.map("Treeview",
+                  background=[("selected", c_acent)],
+                  foreground=[("selected", texto_sobre_color(c_acent))])
+        style.map("Treeview.Heading",
+                  background=[("active", c_sec)])
+
+        # 10. NOTEBOOK (PESTAÑAS)
+        style.configure("TNotebook",
+                         background=c_fondo,
+                         bordercolor=c_sec)
+        style.configure("TNotebook.Tab",
+                         background=c_fondo,
+                         foreground=txt_fnd,
+                         padding=[12, 6],
+                         font=("Segoe UI", 10, "bold"))
+        style.map("TNotebook.Tab",
+                  background=[("selected", c_prim),
+                               ("active",   c_sec)],
+                  foreground=[("selected", txt_prim),
+                               ("active",   txt_prim)])
+
+        # 11. SCROLLBAR
+        style.configure("TScrollbar",
+                         background=c_sec,
+                         troughcolor=c_fondo,
+                         arrowcolor=txt_fnd,
+                         bordercolor=c_fondo)
+        style.map("TScrollbar",
+                  background=[("active", c_prim)])
+
+        # 12. SEPARADORES
+        style.configure("TSeparator", background=c_sec)
+
+        # 13. PROGRESSBAR
+        style.configure("TProgressbar",
+                         background=c_acent,
+                         troughcolor=c_fondo,
+                         bordercolor=c_fondo)
+
+        # 14. CHECKBUTTON
+        style.configure("TCheckbutton",
+                         background=c_fondo,
+                         foreground=txt_fnd)
+        style.map("TCheckbutton",
+                  background=[("active", c_fondo)],
+                  indicatorcolor=[("selected", c_prim)])
+
+        print(f"✅ Tema '{t_boot}' aplicado correctamente.")
+    
+def texto_sobre_color(hex_color):
+    """Devuelve blanco o negro según la luminosidad del color de fondo"""
+    try:
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
+        luminancia = (0.299*r + 0.587*g + 0.114*b) / 255
+        return "#FFFFFF" if luminancia < 0.5 else "#000000"
+    except:
+        return "#000000"
+    
 class LoginWindow(tk.Toplevel):
     def __init__(self, parent, db_manager, on_success):
         super().__init__(parent)
-        self.title("Acceso Seguro")
-        
-        # 1. Ocultamos la ventana mientras la construimos para que no se vea "parpadear" al ajustarse
+        self.title("Acceso al Sistema")
         self.withdraw()
-        
-        self.db = db_manager
+
+        self.db       = db_manager
         self.callback = on_success
         self.protocol("WM_DELETE_WINDOW", self.cancelar_login)
-        
-        # --- CARGAR CONFIGURACIÓN ---
-        titulo = self.db.get_config("TITULO_APP")
-        if not titulo: titulo = "SOTFWARE DE USO LIBRE" 
-        
-        subtitulo = self.db.get_config("SUBTITULO_APP")
-        if not subtitulo: subtitulo = "CONTROL DE PARTIDAS"
-        
-        logo_path = self.db.get_config("LOGO_APP")
-        if not logo_path or not os.path.exists(logo_path):
-            logo_path = "logo.png" if os.path.exists("logo.png") else None
+        self.resizable(False, False)
 
-        # --- INTERFAZ ---
-        # Logo
-        if logo_path:
-            try:
-                img = Image.open(logo_path)
-                img = img.resize((110, 110), Image.LANCZOS)
-                self.img_login = ImageTk.PhotoImage(img)
-                ttk.Label(self, image=self.img_login).pack(pady=(25, 10))
-            except Exception as e:
-                print(f"Error imagen login: {e}")
-                ttk.Label(self, text="🔒", font=("Segoe UI Emoji", 60)).pack(pady=(20, 10))
-        else:
-            ttk.Label(self, text="🔒", font=("Segoe UI Emoji", 60)).pack(pady=(20, 10))
+        # ── Datos de configuración ────────────────────────────────────
+        self.titulo   = self.db.get_config("TITULO_APP")    or "SISTEMA"
+        self.subtitulo = self.db.get_config("SUBTITULO_APP") or "CONTROL DE INVENTARIO"
+        self.logo_path = self.db.get_config("LOGO_APP")
 
-        # Textos
-        ttk.Label(self, text=titulo, font=("Arial Black", 16), bootstyle="primary", justify=CENTER).pack(pady=(0, 5), padx=10)
-        ttk.Label(self, text=subtitulo, font=("Segoe UI", 10, "bold"), justify=CENTER, foreground="gray").pack(pady=(0, 20), padx=10)
-        
-        # Formulario
-        fr = ttk.Frame(self, padding=30)
-        fr.pack(fill=BOTH, expand=True)
-        
-        ttk.Label(fr, text="Usuario:").pack(anchor=W)
-        self.entry_user = ttk.Entry(fr)
-        self.entry_user.pack(fill=X, pady=(0, 15))
-        self.entry_user.focus()
-        
-        ttk.Label(fr, text="Contraseña:").pack(anchor=W)
-        self.entry_pass = ttk.Entry(fr, show="*")
-        self.entry_pass.pack(fill=X, pady=(0, 20))
-        self.entry_pass.bind("<Return>", lambda e: self.entrar())
-        
-        ttk.Button(fr, text="INICIAR SESIÓN", bootstyle="primary", command=self.entrar).pack(fill=X, pady=10)
-        
-        self.lbl_msg = ttk.Label(fr, text="", foreground="red", justify=CENTER)
+        if (not self.logo_path or
+                not os.path.exists(self.logo_path)):
+            self.logo_path = ("logo.png"
+                               if os.path.exists("logo.png")
+                               else None)
+
+        # ── Colores del tema ──────────────────────────────────────────
+        tema        = GestorTemas.get_tema_actual(self.db)
+        self.C_PRIM = tema.get("color_primario",   "#1F4E79")
+        self.C_SEC  = tema.get("color_secundario", "#4472C4")
+        self.C_ACNT = tema.get("color_acento",     "#00B0F0")
+
+        # Oscurecer primario para degradado
+        def oscurecer(hex_c, factor=0.6):
+            h = hex_c.lstrip("#")
+            r = int(int(h[0:2], 16) * factor)
+            g = int(int(h[2:4], 16) * factor)
+            b = int(int(h[4:6], 16) * factor)
+            return f"#{r:02x}{g:02x}{b:02x}"
+
+        self.C_DARK = oscurecer(self.C_PRIM, 0.55)
+
+        # ── Tamaño fijo ───────────────────────────────────────────────
+        WIN_W     = 900
+        WIN_H     = 540
+        PANEL_IZQ = 420
+
+        self.configure(bg=self.C_PRIM)
+
+        # ════════════════════════════════════════════
+        # PANEL IZQUIERDO
+        # ════════════════════════════════════════════
+        self.canvas_izq = tk.Canvas(
+            self, width=PANEL_IZQ, height=WIN_H,
+            highlightthickness=0, bd=0)
+        self.canvas_izq.place(x=0, y=0)
+
+        self._dibujar_panel_izquierdo(PANEL_IZQ, WIN_H)
+
+        # ════════════════════════════════════════════
+        # PANEL DERECHO
+        # ════════════════════════════════════════════
+        fr_der = tk.Frame(
+            self, bg="#FFFFFF",
+            width=WIN_W - PANEL_IZQ, height=WIN_H)
+        fr_der.place(x=PANEL_IZQ, y=0)
+        fr_der.pack_propagate(False) # ── Centrar y mostrar
+
+        # Contenedor centrado verticalmente
+        fr_form = tk.Frame(fr_der, bg="#FFFFFF")
+        fr_form.place(relx=0.5, rely=0.5, anchor="center")
+
+        # ── Icono de candado ──────────────────────────────────────────
+        lbl_icono = tk.Label(
+            fr_form, text="🔐",
+            font=("Segoe UI Emoji", 42),
+            bg="#FFFFFF")
+        lbl_icono.pack(pady=(0, 8))
+
+        # ── Título del formulario ─────────────────────────────────────
+        tk.Label(
+            fr_form,
+            text="INICIAR SESIÓN",
+            font=("Segoe UI", 18, "bold"),
+            fg=self.C_PRIM, bg="#FFFFFF"
+        ).pack(pady=(0, 4))
+
+        tk.Label(
+            fr_form,
+            text="Ingresa tus credenciales para continuar",
+            font=("Segoe UI", 9),
+            fg="#888888", bg="#FFFFFF"
+        ).pack(pady=(0, 28))
+
+        # ── Campo Usuario ─────────────────────────────────────────────
+        fr_u = tk.Frame(fr_form, bg="#FFFFFF")
+        fr_u.pack(fill=X, pady=(0, 12))
+
+        tk.Label(
+            fr_u, text="USUARIO",
+            font=("Segoe UI", 8, "bold"),
+            fg="#555555", bg="#FFFFFF"
+        ).pack(anchor=W)
+
+        fr_e_u = tk.Frame(
+            fr_u, bg="#F0F4F8",
+            highlightbackground=self.C_SEC,
+            highlightthickness=1)
+        fr_e_u.pack(fill=X, ipady=6)
+
+        tk.Label(
+            fr_e_u, text=" 👤 ",
+            font=("Segoe UI Emoji", 12),
+            bg="#F0F4F8", fg=self.C_PRIM
+        ).pack(side=LEFT)
+
+        self.entry_user = tk.Entry(
+            fr_e_u,
+            font=("Segoe UI", 12),
+            bg="#F0F4F8", fg="#222222",
+            relief="flat", bd=0,
+            insertbackground=self.C_PRIM,
+            width=22)
+        self.entry_user.pack(
+            side=LEFT, fill=X, expand=True, padx=(0, 8))
+
+        # Hover sobre campo usuario
+        def on_enter_u(e):
+            fr_e_u.configure(
+                highlightbackground=self.C_PRIM,
+                highlightthickness=2)
+        def on_leave_u(e):
+            fr_e_u.configure(
+                highlightbackground=self.C_SEC,
+                highlightthickness=1)
+        fr_e_u.bind("<Enter>", on_enter_u)
+        fr_e_u.bind("<Leave>", on_leave_u)
+        self.entry_user.bind("<Enter>", on_enter_u)
+        self.entry_user.bind("<Leave>", on_leave_u)
+
+        # ── Campo Contraseña ──────────────────────────────────────────
+        fr_p = tk.Frame(fr_form, bg="#FFFFFF")
+        fr_p.pack(fill=X, pady=(0, 8))
+
+        tk.Label(
+            fr_p, text="CONTRASEÑA",
+            font=("Segoe UI", 8, "bold"),
+            fg="#555555", bg="#FFFFFF"
+        ).pack(anchor=W)
+
+        fr_e_p = tk.Frame(
+            fr_p, bg="#F0F4F8",
+            highlightbackground=self.C_SEC,
+            highlightthickness=1)
+        fr_e_p.pack(fill=X, ipady=6)
+
+        tk.Label(
+            fr_e_p, text=" 🔑 ",
+            font=("Segoe UI Emoji", 12),
+            bg="#F0F4F8", fg=self.C_PRIM
+        ).pack(side=LEFT)
+
+        self.entry_pass = tk.Entry(
+            fr_e_p,
+            font=("Segoe UI", 12),
+            bg="#F0F4F8", fg="#222222",
+            relief="flat", bd=0,
+            show="●",
+            insertbackground=self.C_PRIM,
+            width=18)
+        self.entry_pass.pack(
+            side=LEFT, fill=X, expand=True)
+
+        # Ojo para ver contraseña
+        self._ver_pass = False
+        self.btn_ojo = tk.Label(
+            fr_e_p, text=" 👁 ",
+            font=("Segoe UI Emoji", 12),
+            bg="#F0F4F8", fg="#AAAAAA",
+            cursor="hand2")
+        self.btn_ojo.pack(side=RIGHT, padx=4)
+        self.btn_ojo.bind("<Button-1>",
+                           lambda e: self._toggle_pass())
+
+        def on_enter_p(e):
+            fr_e_p.configure(
+                highlightbackground=self.C_PRIM,
+                highlightthickness=2)
+        def on_leave_p(e):
+            fr_e_p.configure(
+                highlightbackground=self.C_SEC,
+                highlightthickness=1)
+        fr_e_p.bind("<Enter>", on_enter_p)
+        fr_e_p.bind("<Leave>", on_leave_p)
+        self.entry_pass.bind("<Enter>", on_enter_p)
+        self.entry_pass.bind("<Leave>", on_leave_p)
+
+        # ── Nota mayúsculas ───────────────────────────────────────────
+        tk.Label(
+            fr_form,
+            text="⚠  El usuario distingue MAYÚSCULAS de minúsculas",
+            font=("Segoe UI", 8),
+            fg="#AAAAAA", bg="#FFFFFF"
+        ).pack(pady=(0, 20))
+
+        # ── Botón Ingresar ────────────────────────────────────────────
+        self.btn_login = tk.Button(
+            fr_form,
+            text="  INGRESAR AL SISTEMA  ",
+            font=("Segoe UI", 11, "bold"),
+            bg=self.C_PRIM, fg="#FFFFFF",
+            activebackground=self.C_SEC,
+            activeforeground="#FFFFFF",
+            relief="flat", bd=0,
+            cursor="hand2",
+            pady=10,
+            command=self.entrar)
+        self.btn_login.pack(fill=X, pady=(0, 16))
+
+        # Hover botón
+        self.btn_login.bind(
+            "<Enter>",
+            lambda e: self.btn_login.configure(
+                bg=self.C_SEC))
+        self.btn_login.bind(
+            "<Leave>",
+            lambda e: self.btn_login.configure(
+                bg=self.C_PRIM))
+
+        # ── Mensaje de error ──────────────────────────────────────────
+        self.lbl_msg = tk.Label(
+            fr_form, text="",
+            font=("Segoe UI", 9, "bold"),
+            fg="#E74C3C", bg="#FFFFFF")
         self.lbl_msg.pack()
 
-        # --- AUTOAJUSTE Y CENTRADO ---
-        self.update_idletasks() # IMPORTANTE: Calcula el tamaño real de los elementos
-        
-        width = 400 # Ancho fijo que queremos
-        height = self.winfo_reqheight() # Altura automática según contenido
-        
-        # Obtener dimensiones pantalla
+        # ── Bindings de teclado ───────────────────────────────────────
+        self.entry_user.bind("<Return>",
+            lambda e: self.entry_pass.focus_set())
+        self.entry_pass.bind("<Return>",
+            lambda e: self.entrar())
+        self.entry_user.bind("<Tab>",
+            lambda e: (self.entry_pass.focus_set(),
+                       "break")[1])
+
+        # ── Centrar y mostrar ─────────────────────────────────────────
+        self.update_idletasks()
         ws = self.winfo_screenwidth()
         hs = self.winfo_screenheight()
-        
-        x = (ws // 2) - (width // 2)
-        y = (hs // 2) - (height // 2)
-        
-        # Aplicar geometría calculada
-        self.geometry(f'{width}x{height}+{int(x)}+{int(y)}')
-        self.resizable(False, False)
-        
-        # Mostrar ventana ya lista
+        x  = (ws // 2) - (WIN_W // 2)
+        y  = (hs // 2) - (WIN_H // 2)
+        self.geometry(f"{WIN_W}x{WIN_H}+{x}+{y}")
+
         self.deiconify()
-    
+        self.entry_user.focus_set()
+
+        # ── Animación de entrada ──────────────────────────────────────
+        self._animar_entrada()
+
+    # ── Métodos auxiliares ────────────────────────────────────────────
+    def _dibujar_panel_izquierdo(self, w, h):
+        """
+        Panel izquierdo AUTO-ADAPTABLE con layout PROPORCIONAL FIJO.
+        Logo grande (120px) conservando su forma/proporción original.
+        """
+        c = self.canvas_izq
+
+        # ══════════════════════════════════════════════════════════════
+        # A. FONDO DEGRADADO
+        # ══════════════════════════════════════════════════════════════
+        pasos = 60
+        for i in range(pasos):
+            t  = i / pasos
+            r0 = int(int(self.C_DARK.lstrip("#")[0:2], 16) * (1 - t)
+                     + int(self.C_PRIM.lstrip("#")[0:2], 16) * t)
+            g0 = int(int(self.C_DARK.lstrip("#")[2:4], 16) * (1 - t)
+                     + int(self.C_PRIM.lstrip("#")[2:4], 16) * t)
+            b0 = int(int(self.C_DARK.lstrip("#")[4:6], 16) * (1 - t)
+                     + int(self.C_PRIM.lstrip("#")[4:6], 16) * t)
+            color = f"#{r0:02x}{g0:02x}{b0:02x}"
+            y0 = int(h * i / pasos)
+            y1 = int(h * (i + 1) / pasos)
+            c.create_rectangle(0, y0, w, y1, fill=color, outline="")
+
+        # ══════════════════════════════════════════════════════════════
+        # B. CÍRCULOS DECORATIVOS + LÍNEAS
+        # ══════════════════════════════════════════════════════════════
+        def circulo(cx, cy, r, color):
+            c.create_oval(cx - r, cy - r, cx + r, cy + r,
+                          fill=color, outline="")
+
+        circulo(w - 40,   -40,  120, self.C_SEC)
+        circulo(-30,    h + 30, 100, self.C_DARK)
+        circulo(w // 2, h // 2, 200, self.C_DARK)
+        circulo(30,       80,    50, self.C_ACNT)
+        circulo(w - 60, h - 80,  70, self.C_ACNT)
+
+        for i in range(0, w + h, 45):
+            c.create_line(i, 0, 0, i,
+                          fill="#FFFFFF", width=1, stipple="gray12")
+
+        # ══════════════════════════════════════════════════════════════
+        # C. TAMAÑO DE FUENTE ADAPTABLE SEGÚN LONGITUD DEL TÍTULO
+        # ══════════════════════════════════════════════════════════════
+        titulo_texto = (self.titulo or "SISTEMA").upper()
+        subtit_texto =  self.subtitulo or ""
+        n = len(titulo_texto)
+
+        if   n <= 12:   fs = 22
+        elif n <= 20:   fs = 19
+        elif n <= 32:   fs = 16
+        elif n <= 46:   fs = 14
+        else:           fs = 12
+
+        # ══════════════════════════════════════════════════════════════
+        # D. POSICIONES Y PROPORCIONALES A h
+        # ══════════════════════════════════════════════════════════════
+        logo_max    = 200           # tamaño MÁXIMO del lado mayor del logo
+        logo_cy     = int(h * 0.20) # centro Y del logo
+        titulo_cy   = int(h * 0.52) # centro del bloque de título
+        linea_y     = int(h * 0.64) # línea decorativa
+        subtit_cy   = int(h * 0.73) # subtítulo
+        pie_y       = h - 22        # pie
+
+        # ══════════════════════════════════════════════════════════════
+        # E. DIBUJAR ELEMENTOS
+        # ══════════════════════════════════════════════════════════════
+
+        # ── Logo (PROPORCIÓN ORIGINAL PRESERVADA) ─────────────────────
+        # thumbnail() escala la imagen para que quepa en (logo_max x logo_max)
+        # manteniendo el aspect ratio original — NUNCA aplasta ni estira.
+        if self.logo_path:
+            try:
+                img = Image.open(self.logo_path)
+
+                # thumbnail modifica en-place y respeta proporciones
+                img_copia = img.copy()
+                img_copia.thumbnail((logo_max, logo_max), Image.LANCZOS)
+
+                self._img_logo = ImageTk.PhotoImage(img_copia)
+                c.create_image(w // 2, logo_cy,
+                               image=self._img_logo, anchor="center")
+            except Exception:
+                c.create_text(w // 2, logo_cy,
+                              text="⚓",
+                              font=("Segoe UI Emoji", 54),
+                              fill="#FFFFFF", anchor="center")
+        else:
+            c.create_text(w // 2, logo_cy,
+                          text="⚓",
+                          font=("Segoe UI Emoji", 54),
+                          fill="#FFFFFF", anchor="center")
+
+        # ── Título principal ──────────────────────────────────────────
+        c.create_text(
+            w // 2, titulo_cy,
+            text=titulo_texto,
+            font=("Arial Black", fs),
+            fill="#FFFFFF",
+            anchor="center",
+            width=w - 50,
+            justify="center")
+
+        # ── Línea decorativa de acento ────────────────────────────────
+        largo = min(80, int(w * 0.20))
+        c.create_rectangle(
+            w // 2 - largo, linea_y,
+            w // 2 + largo, linea_y + 4,
+            fill=self.C_ACNT, outline="")
+
+        # ── Subtítulo ─────────────────────────────────────────────────
+        c.create_text(
+            w // 2, subtit_cy,
+            text=subtit_texto,
+            font=("Segoe UI", 11),
+            fill="#DDEEFF",
+            anchor="center",
+            width=w - 60,
+            justify="center")
+
+        # ── Pie de página / versión ───────────────────────────────────
+        c.create_text(
+            w // 2, pie_y,
+            text="Sistema de Gestión de Inventario  •  v2.0",
+            font=("Segoe UI", 8),
+            fill="#AACCEE",
+            anchor="center")
+        
+    def _animar_entrada(self):
+        """Efecto de aparición suave (fade-in simulado con alpha)"""
+        try:
+            self.attributes("-alpha", 0.0)
+            def fade(alpha=0.0):
+                if alpha < 1.0:
+                    alpha = min(alpha + 0.07, 1.0)
+                    self.attributes("-alpha", alpha)
+                    self.after(18, lambda: fade(alpha))
+            fade()
+        except:
+            pass
+
     def cancelar_login(self):
-        if messagebox.askyesno("Salir", "¿Deseas salir del sistema?"):
+        if messagebox.askyesno(
+                "Salir", "¿Deseas salir del sistema?"):
             sys.exit()
 
     def entrar(self):
-        u = self.entry_user.get().strip().upper()
+        u = self.entry_user.get().strip()
         p = self.entry_pass.get().strip()
-        
+
+        if not u or not p:
+            self.lbl_msg.configure(
+                text="⚠  Ingresa usuario y contraseña.",
+                fg="#E67E22")
+            return
+
+        # Feedback visual en el botón
+        self.btn_login.configure(
+            text="  Verificando...  ",
+            bg="#888888", state="disabled")
+        self.update()
+
         user_data = self.db.validar_login(u, p)
+
         if user_data:
-            self.lbl_msg.config(text="Acceso Correcto...", foreground="green")
-            self.after(500, lambda: [self.destroy(), self.callback(user_data)])
+            self.lbl_msg.configure(
+                text="✅  Acceso correcto, cargando...",
+                fg="#27AE60")
+            self.btn_login.configure(
+                text="  ✅  ACCESO CONCEDIDO  ",
+                bg="#27AE60")
+            self.after(
+                600,
+                lambda: [self.destroy(),
+                          self.callback(user_data)])
         else:
-            self.lbl_msg.config(text="Usuario o contraseña incorrectos", foreground="red")
+            self.btn_login.configure(
+                text="  INGRESAR AL SISTEMA  ",
+                bg=self.C_PRIM, state="normal")
+            self.lbl_msg.configure(
+                text="❌  Usuario o contraseña incorrectos.",
+                fg="#E74C3C")
+            # Efecto shake en la ventana
+            self._shake()
+            self.entry_pass.delete(0, END)
+            self.entry_pass.focus_set()
 
+    def _shake(self):
+        """Animación de sacudida cuando la contraseña es incorrecta"""
+        x0 = self.winfo_x()
+        y0 = self.winfo_y()
+        movs = [8, -8, 6, -6, 4, -4, 2, -2, 0]
 
+        def paso(i=0):
+            if i < len(movs):
+                self.geometry(
+                    f"+{x0 + movs[i]}+{y0}")
+                self.after(30, lambda: paso(i + 1))
+            else:
+                self.geometry(f"+{x0}+{y0}")
+
+        paso()
             
 class SistemaInventario:
     def __init__(self, root, db_manager, usuario_actual):
@@ -425,6 +955,8 @@ class SistemaInventario:
         self.usuario = usuario_actual
         # Cargar tema actual
         self.tema_actual = GestorTemas.get_tema_actual(self.db)
+        # Aplicar tema a toda la ventana principal
+        GestorTemas.aplicar_estilos_completos(self.root, self.tema_actual)
         
         # LEER TITULO DE LA BASE DE DATOS
         titulo_ventana = self.db.get_config("TITULO_APP")
@@ -486,6 +1018,26 @@ class SistemaInventario:
         self.datos_kardex_procesados = []
 
    
+    def _actualizar_filtros_visibles(self):
+        """Muestra u oculta grupos de filtros según el tipo de reporte"""
+        tipo = self.var_tipo_reporte.get()
+
+        # Ocultar todo primero
+        self.fr_grupo_fechas.pack_forget()
+        self.fr_grupo_partida.pack_forget()
+
+        if tipo == "PERIODO":
+            # Solo rango de fechas
+            self.fr_grupo_fechas.pack(side=LEFT, fill=X)
+
+        elif tipo == "PERIODO_PARTIDA":
+            # Fechas + partida
+            self.fr_grupo_fechas.pack(side=LEFT, fill=X)
+            self.fr_grupo_partida.pack(side=LEFT, fill=X, padx=(20, 0))
+
+        elif tipo == "GENERAL_PARTIDA":
+            # Solo partida (todo el historial)
+            self.fr_grupo_partida.pack(side=LEFT, fill=X)
 
     def limpiar_filtros(self):
         """
@@ -538,100 +1090,158 @@ class SistemaInventario:
             if isinstance(widget, ttk.Frame) and widget != self.notebook:
                 widget.destroy()
 
-        # 2. Frame Principal del Header (Más alto y espacioso)
-        fr = ttk.Frame(self.root, padding=(20, 15)) # Aumentamos padding vertical
-        try: fr.pack(side=TOP, fill=X, before=self.notebook)
-        except: fr.pack(side=TOP, fill=X)
-        
-        # ==========================================
-        # SECCIÓN IZQUIERDA: LOGO Y TÍTULO DEL SISTEMA
-        # ==========================================
+        # 2. Frame Principal del Header
+        fr = ttk.Frame(self.root, padding=(15, 10))
+        try:
+            fr.pack(side=TOP, fill=X, before=self.notebook)
+        except:
+            fr.pack(side=TOP, fill=X)
+
+        # Color de fondo del tema (para componer la transparencia del PNG)
+        bg_color = self.tema_actual.get("color_fondo", "#FFFFFF")
+
+        def cargar_imagen_sin_fondo(ruta, max_px):
+            """
+            Carga un PNG (con o sin alpha) y lo compone sobre el color
+            de fondo del tema. Así la transparencia se ve natural.
+            Respeta la proporción original (thumbnail).
+            """
+            img = Image.open(ruta).copy()
+            img.thumbnail((max_px, max_px), Image.LANCZOS)
+
+            # Convertir a RGBA para manejar cualquier modo (RGB, P, RGBA…)
+            img_rgba = img.convert("RGBA")
+
+            # Crear fondo del color exacto del tema
+            fondo = Image.new("RGBA", img_rgba.size, bg_color)
+
+            # Pegar la imagen usando su canal alfa como máscara
+            fondo.paste(img_rgba, mask=img_rgba.split()[3])
+
+            return fondo.convert("RGB")
+
+        # ══════════════════════════════════════════════════════════════
+        # SECCIÓN IZQUIERDA: LOGO + TÍTULO
+        # ══════════════════════════════════════════════════════════════
         fr_left = ttk.Frame(fr)
         fr_left.pack(side=LEFT, fill=Y, anchor=W)
 
-        # Logo del Sistema
+        # ── Logo ──────────────────────────────────────────────────────
         logo_path = self.db.get_config("LOGO_APP")
         if not logo_path or not os.path.exists(logo_path):
             logo_path = "logo.png" if os.path.exists("logo.png") else None
 
         if logo_path:
             try:
-                # Logo un poco más grande también (100px)
-                img = Image.open(logo_path).resize((100, 100), Image.LANCZOS)
-                self.tk_logo = ImageTk.PhotoImage(img, master=fr)
-                ttk.Label(fr_left, image=self.tk_logo).pack(side=LEFT, padx=(0, 20))
-            except: 
-                ttk.Label(fr_left, text="⚓", font=("Arial", 40)).pack(side=LEFT, padx=15)
+                img_final = cargar_imagen_sin_fondo(logo_path, 150)
+                self.tk_logo = ImageTk.PhotoImage(img_final, master=fr)
+                ttk.Label(fr_left, image=self.tk_logo).pack(
+                    side=LEFT, padx=(0, 15))
+            except:
+                ttk.Label(fr_left, text="⚓",
+                          font=("Arial", 36)).pack(side=LEFT, padx=12)
         else:
-            ttk.Label(fr_left, text="⚓", font=("Arial", 40)).pack(side=LEFT, padx=15)
+            ttk.Label(fr_left, text="⚓",
+                      font=("Arial", 36)).pack(side=LEFT, padx=12)
 
-        # Títulos
+        # ── Textos: Título + Subtítulo ────────────────────────────────
         txt_fr = ttk.Frame(fr_left)
         txt_fr.pack(side=LEFT, fill=Y, anchor=CENTER)
-        
-        t_principal = self.db.get_config("TITULO_APP") or "SOTFWARE DE USO LIBRE"
-        t_sub = self.db.get_config("SUBTITULO_APP") or "CONTROL DE PARTIDAS"
 
-        ttk.Label(txt_fr, text=t_principal, font=("Arial Black", 28), bootstyle="primary").pack(anchor=W)
-        ttk.Label(txt_fr, text=t_sub, font=("Segoe UI", 14, "bold"), bootstyle="secondary").pack(anchor=W)
-        
-        # ==========================================
-        # SECCIÓN DERECHA: FICHA DE USUARIO (AMPLIA)
-        # ==========================================
-        
-        # Contenedor derecho
+        t_principal = self.db.get_config("TITULO_APP")    or "SOFTWARE DE USO LIBRE"
+        t_sub       = self.db.get_config("SUBTITULO_APP") or "CONTROL DE PARTIDAS"
+
+        # Fuente adaptable según longitud
+        n = len(t_principal)
+        if   n <= 12:   fs_titulo = 28
+        elif n <= 20:   fs_titulo = 24
+        elif n <= 30:   fs_titulo = 21
+        elif n <= 40:   fs_titulo = 18
+        elif n <= 52:   fs_titulo = 15
+        else:           fs_titulo = 13
+
+        ttk.Label(
+            txt_fr,
+            text=t_principal,
+            font=("Arial Black", fs_titulo),
+            bootstyle="primary",
+            wraplength=700
+        ).pack(anchor=W)
+
+        ttk.Label(
+            txt_fr,
+            text=t_sub,
+            font=("Segoe UI", 13, "bold"),
+            bootstyle="secondary"
+        ).pack(anchor=W)
+
+        # ══════════════════════════════════════════════════════════════
+        # SECCIÓN DERECHA: FICHA DE USUARIO
+        # ══════════════════════════════════════════════════════════════
         fr_right = ttk.Frame(fr)
         fr_right.pack(side=RIGHT, fill=Y, anchor=E)
 
-        # Datos del Usuario
-        nombre_user = self.usuario.get('nombre_completo', self.usuario['usuario']).upper()
-        email_user = self.usuario.get('email', 'Usuario del Sistema')
+        nombre_user    = self.usuario.get('nombre_completo',
+                                          self.usuario['usuario']).upper()
+        email_user     = self.usuario.get('email', 'Usuario del Sistema')
         foto_user_path = self.usuario.get('foto_path', '')
-        rol_user = self.usuario.get('rol', 'OPERADOR')
+        rol_user       = self.usuario.get('rol', 'OPERADOR')
 
-        # 1. TEXTOS (BIENVENIDA Y NOMBRE)
+        # Textos del usuario
         fr_textos_user = ttk.Frame(fr_right)
-        fr_textos_user.pack(side=LEFT, padx=(0, 20), anchor=E)
+        fr_textos_user.pack(side=LEFT, padx=(0, 15), anchor=E)
 
-        # Etiqueta de Bienvenida
-        ttk.Label(fr_textos_user, text="¡BIENVENIDO(A)!", 
-                 font=("Segoe UI", 10, "bold"), bootstyle="success", anchor=E).pack(anchor=E)
-        
-        # Nombre del Usuario (GRANDE)
-        ttk.Label(fr_textos_user, text=nombre_user, 
-                 font=("Segoe UI", 18, "bold"), bootstyle="primary", anchor=E).pack(anchor=E)
-        
-        # Rol y Email
-        texto_rol = f"{rol_user} | {email_user}"
-        ttk.Label(fr_textos_user, text=texto_rol, 
-                 font=("Segoe UI", 10), bootstyle="secondary", anchor=E).pack(anchor=E)
+        ttk.Label(fr_textos_user,
+                  text="¡BIENVENIDO(A)!",
+                  font=("Segoe UI", 9, "bold"),
+                  bootstyle="success",
+                  anchor=E).pack(anchor=E)
 
-        # 2. FOTO DE PERFIL (GRANDE)
-        fr_foto_marco = ttk.Frame(fr_right, padding=2, bootstyle="secondary") # Un marquito fino
-        fr_foto_marco.pack(side=LEFT, padx=(0, 15))
+        ttk.Label(fr_textos_user,
+                  text=nombre_user,
+                  font=("Segoe UI", 16, "bold"),
+                  bootstyle="primary",
+                  anchor=E).pack(anchor=E)
+
+        ttk.Label(fr_textos_user,
+                  text=f"{rol_user} | {email_user}",
+                  font=("Segoe UI", 9),
+                  bootstyle="secondary",
+                  anchor=E).pack(anchor=E)
+
+        # Foto de perfil (también sin fondo blanco)
+        fr_foto_marco = ttk.Frame(fr_right, padding=2, bootstyle="secondary")
+        fr_foto_marco.pack(side=LEFT, padx=(0, 12))
 
         if foto_user_path and os.path.exists(foto_user_path):
             try:
-                # FOTO MUCHO MÁS GRANDE (75x75)
-                img_u = Image.open(foto_user_path).resize((75, 75), Image.LANCZOS)
-                self.tk_foto_user = ImageTk.PhotoImage(img_u, master=fr)
-                lbl_foto = ttk.Label(fr_foto_marco, image=self.tk_foto_user)
-                lbl_foto.pack()
+                img_foto = cargar_imagen_sin_fondo(foto_user_path, 70)
+                self.tk_foto_user = ImageTk.PhotoImage(img_foto, master=fr)
+                ttk.Label(fr_foto_marco,
+                          image=self.tk_foto_user).pack()
             except:
-                 ttk.Label(fr_foto_marco, text="👤", font=("Segoe UI Emoji", 45)).pack()
+                ttk.Label(fr_foto_marco,
+                          text="👤",
+                          font=("Segoe UI Emoji", 40)).pack()
         else:
             icono_def = "👨‍✈️" if rol_user == 'ADMIN' else "👤"
-            ttk.Label(fr_foto_marco, text=icono_def, font=("Segoe UI Emoji", 45)).pack()
+            ttk.Label(fr_foto_marco,
+                      text=icono_def,
+                      font=("Segoe UI Emoji", 40)).pack()
 
-        # 3. BOTÓN DE CONFIGURACIÓN (ENGRANAJE)
-        # Separador vertical
-        ttk.Separator(fr_right, orient=VERTICAL).pack(side=LEFT, fill=Y, padx=10)
-        
-        btn_conf = ttk.Button(fr_right, text="⚙️", bootstyle="link", command=self.abrir_menu_admin)
-        # Agrandamos el engrane
-        for child in btn_conf.winfo_children(): child.configure(font=("Segoe UI Emoji", 30))
+        # Separador + Botón configuración
+        ttk.Separator(fr_right, orient=VERTICAL).pack(
+            side=LEFT, fill=Y, padx=8)
+
+        btn_conf = ttk.Button(fr_right, text="⚙️",
+                              bootstyle="link",
+                              command=self.abrir_menu_admin)
         btn_conf.pack(side=LEFT, padx=5)
-        btn_conf.pack(side=LEFT)
+        try:
+            for child in btn_conf.winfo_children():
+                child.configure(font=("Segoe UI Emoji", 28))
+        except:
+            pass
 
     def setup_autocomplete(self, combo, lista_completa):
         """Filtra la lista internamente sin bloquear ni interrumpir la escritura"""
@@ -663,168 +1273,469 @@ class SistemaInventario:
     # ------------------------------------------------------------------
     #  INTERFAZ DE INVENTARIO REDISEÑADA (FÁCIL PARA EL USUARIO)
     # ------------------------------------------------------------------
+    # ══════════════════════════════════════════════════════════════════
+    # REEMPLAZA setup_tab_inventario COMPLETO
+    # ══════════════════════════════════════════════════════════════════
     def setup_tab_inventario(self):
         # 1. DIVIDIR LA PANTALLA
-        self.p_izq = ttk.Frame(self.tab_inv, width=550)
+        self.p_izq = ttk.Frame(self.tab_inv, width=570)
         self.p_izq.pack(side=LEFT, fill=Y, padx=(0, 10))
-        self.p_izq.pack_propagate(False) 
-        
+        self.p_izq.pack_propagate(False)
+
         p_der = ttk.Frame(self.tab_inv)
         p_der.pack(side=RIGHT, fill=BOTH, expand=True)
 
         # === PANEL IZQUIERDO: INDICADOR DE SELECCIÓN ===
-        fr_info = ttk.LabelFrame(self.p_izq, text=" 📦 Material Seleccionado ", padding=10, bootstyle="secondary")
+        fr_info = ttk.LabelFrame(self.p_izq,
+                                 text=" 📦 Material Seleccionado ",
+                                 padding=10, bootstyle="secondary")
         fr_info.pack(fill=X, pady=(0, 10))
-        
-        self.lbl_seleccionado = ttk.Label(fr_info, text="Ninguno (Selecciona en la tabla ➡)", 
-                                          font=("Segoe UI", 11, "bold"), foreground="#E67E22", wraplength=350)
+
+        self.lbl_seleccionado = ttk.Label(
+            fr_info,
+            text="Ninguno (Selecciona en la tabla ➡)",
+            font=("Segoe UI", 11, "bold"),
+            foreground="#E67E22", wraplength=380)
         self.lbl_seleccionado.pack(anchor=CENTER)
-        self.lbl_stock_actual = ttk.Label(fr_info, text="Stock: --", font=("Segoe UI", 10))
+
+        self.lbl_stock_actual = ttk.Label(
+            fr_info, text="Stock: --", font=("Segoe UI", 10))
         self.lbl_stock_actual.pack(anchor=CENTER)
 
-        # === PANEL IZQUIERDO: PESTAÑAS DE ACCIÓN ===
+        # === PESTAÑAS DE ACCIÓN ===
         self.nb_acciones = ttk.Notebook(self.p_izq, bootstyle="primary")
         self.nb_acciones.pack(fill=BOTH, expand=True)
 
-        # --- PESTAÑA 1: ENTRADAS (REUBICADA AL PRINCIPIO) ---
+        # ──────────────────────────────────────────────────────────────
+        # PESTAÑA 1: ENTRADAS
+        # ──────────────────────────────────────────────────────────────
         self.tab_entradas = ttk.Frame(self.nb_acciones, padding=15)
         self.nb_acciones.add(self.tab_entradas, text="⬇️ ENTRADAS")
 
-        ttk.Label(self.tab_entradas, text="ENTRADA DE NUEVO MATERIAL", font=("Segoe UI", 12, "bold"), foreground="#27ae60").pack(pady=(0, 15))
+        ttk.Label(self.tab_entradas,
+                  text="ENTRADA DE NUEVO MATERIAL",
+                  font=("Segoe UI", 12, "bold"),
+                  foreground="#27ae60").pack(pady=(0, 15))
 
         ttk.Label(self.tab_entradas, text="Cantidad a Ingresar:").pack(anchor=W)
-        self.ent_cant_ent = ttk.Entry(self.tab_entradas, font=("Segoe UI", 14, "bold"), justify=CENTER)
+        self.ent_cant_ent = ttk.Entry(
+            self.tab_entradas, font=("Segoe UI", 14, "bold"), justify=CENTER)
         self.ent_cant_ent.pack(fill=X, pady=5)
 
-        ttk.Label(self.tab_entradas, text="Factura / Referencia:").pack(anchor=W, pady=(10, 0))
+        ttk.Label(self.tab_entradas,
+                  text="Factura / Referencia:").pack(anchor=W, pady=(10, 0))
         self.ent_factura_ent = ttk.Entry(self.tab_entradas)
         self.ent_factura_ent.pack(fill=X, pady=2)
 
-        # PERMISO ENTRADA
         estado_ent = "normal" if self.tiene_permiso('entrada') else "disabled"
-        btn_ent = ttk.Button(self.tab_entradas, text="✅ REGISTRAR ENTRADA", bootstyle="success", state=estado_ent,
-                           command=lambda: self.procesar_movimiento("ENTRADA"))
+        btn_ent = ttk.Button(
+            self.tab_entradas,
+            text="✅ REGISTRAR ENTRADA",
+            bootstyle="success", state=estado_ent,
+            command=lambda: self.procesar_movimiento("ENTRADA"))
         btn_ent.pack(fill=X, pady=30, ipady=5)
-        
-        if estado_ent == "disabled": ToolTip(btn_ent, text="No tienes permiso para registrar entradas")
+        if estado_ent == "disabled":
+            ToolTip(btn_ent, text="No tienes permiso para registrar entradas")
 
-        # --- PESTAÑA 2: SALIDAS (REUBICADA AL MEDIO) ---
-        self.tab_salidas = ttk.Frame(self.nb_acciones, padding=15)
+        # ──────────────────────────────────────────────────────────────
+        # PESTAÑA 2: SALIDAS — SISTEMA DE CARRITO MULTI-MATERIAL
+        # ──────────────────────────────────────────────────────────────
+        self.tab_salidas = ttk.Frame(self.nb_acciones, padding=10)
         self.nb_acciones.add(self.tab_salidas, text="⬆️ SALIDAS")
 
-        ttk.Label(self.tab_salidas, text="Registrar Salida", font=("Segoe UI", 12, "bold"), foreground="#c0392b").pack(pady=(0, 15))
+        ttk.Label(self.tab_salidas,
+                  text="Registrar Salida de Materiales",
+                  font=("Segoe UI", 12, "bold"),
+                  foreground="#c0392b").pack(pady=(0, 8))
 
-        ttk.Label(self.tab_salidas, text="Cantidad a Retirar:").pack(anchor=W)
-        self.ent_cant_sal = ttk.Entry(self.tab_salidas, font=("Segoe UI", 14, "bold"), justify=CENTER)
-        self.ent_cant_sal.pack(fill=X, pady=5)
+        # ── Datos generales del vale (área, responsable, jefe) ────────
+        fr_datos = ttk.LabelFrame(self.tab_salidas,
+                                  text=" Datos del Vale ",
+                                  padding=8, bootstyle="danger")
+        fr_datos.pack(fill=X, pady=(0, 8))
 
-        ttk.Label(self.tab_salidas, text="Destino / Área:").pack(anchor=W, pady=(10, 0))
-        self.cb_area_sal = ttk.Combobox(self.tab_salidas)
-        self.cb_area_sal.pack(fill=X, pady=2)
+        ttk.Label(fr_datos, text="Destino / Área:").grid(
+            row=0, column=0, sticky=W, pady=2)
+        self.cb_area_sal = ttk.Combobox(fr_datos)
+        self.cb_area_sal.grid(row=0, column=1, sticky=EW, padx=5, pady=2)
 
-        ttk.Label(self.tab_salidas, text="Solicita (Nombre):").pack(anchor=W, pady=(10, 0))
-        self.ent_resp_sal = ttk.Entry(self.tab_salidas)
-        self.ent_resp_sal.pack(fill=X, pady=2)
+        ttk.Label(fr_datos, text="Solicita (Nombre):").grid(
+            row=1, column=0, sticky=W, pady=2)
+        self.ent_resp_sal = ttk.Entry(fr_datos)
+        self.ent_resp_sal.grid(row=1, column=1, sticky=EW, padx=5, pady=2)
 
-        ttk.Label(self.tab_salidas, text="Autoriza / Entrega:").pack(anchor=W, pady=(10, 0))
-        self.cb_jefe_sal = ttk.Combobox(self.tab_salidas)
-        self.cb_jefe_sal.pack(fill=X, pady=2)
-        
-        # PERMISO SALIDA
+        ttk.Label(fr_datos, text="Autoriza / Entrega:").grid(
+            row=2, column=0, sticky=W, pady=2)
+        self.cb_jefe_sal = ttk.Combobox(fr_datos)
+        self.cb_jefe_sal.grid(row=2, column=1, sticky=EW, padx=5, pady=2)
+
+        fr_datos.columnconfigure(1, weight=1)
+
+        # ── Agregar material al carrito ───────────────────────────────
+        fr_agregar = ttk.LabelFrame(self.tab_salidas,
+                                    text=" ➕ Agregar Material al Vale ",
+                                    padding=8, bootstyle="warning")
+        fr_agregar.pack(fill=X, pady=(0, 6))
+
+        ttk.Label(fr_agregar,
+                  text="💡 Selecciona un material en la tabla y escribe la cantidad:",
+                  font=("Segoe UI", 8), foreground="gray").pack(anchor=W)
+
+        fr_cant_add = ttk.Frame(fr_agregar)
+        fr_cant_add.pack(fill=X, pady=5)
+
+        ttk.Label(fr_cant_add,
+                  text="Cantidad:", font=("Segoe UI", 10, "bold")).pack(side=LEFT)
+        self.ent_cant_sal = ttk.Entry(
+            fr_cant_add, width=8,
+            font=("Segoe UI", 13, "bold"), justify=CENTER)
+        self.ent_cant_sal.pack(side=LEFT, padx=8)
+
         estado_sal = "normal" if self.tiene_permiso('salida') else "disabled"
-        btn_sal = ttk.Button(self.tab_salidas, text="🔥 REGISTRAR SALIDA", bootstyle="danger", state=estado_sal,
-                           command=lambda: self.procesar_movimiento("SALIDA"))
-        btn_sal.pack(fill=X, pady=30, ipady=5)
-        
-        if estado_sal == "disabled": ToolTip(btn_sal, text="No tienes permiso para registrar salidas")
+        ttk.Button(
+            fr_cant_add,
+            text="➕ Agregar",
+            bootstyle="warning",
+            state=estado_sal,
+            command=self.agregar_al_carrito
+        ).pack(side=LEFT)
 
-        # --- PESTAÑA 3: NUEVO (SE QUEDA AL FINAL) ---
+        # ── Lista del carrito ─────────────────────────────────────────
+        fr_carrito = ttk.LabelFrame(self.tab_salidas,
+                                    text=" 🛒 Materiales en este Vale ",
+                                    padding=5, bootstyle="info")
+        fr_carrito.pack(fill=BOTH, expand=True, pady=(0, 6))
+
+        cols_c = ("MATERIAL", "CANT", "STOCK")
+        self.tree_carrito = ttk.Treeview(
+            fr_carrito, columns=cols_c,
+            show="headings", height=5, bootstyle="warning")
+
+        self.tree_carrito.heading("MATERIAL", text="Material")
+        self.tree_carrito.column("MATERIAL", width=220)
+        self.tree_carrito.heading("CANT", text="Cantidad")
+        self.tree_carrito.column("CANT", width=65, anchor=CENTER)
+        self.tree_carrito.heading("STOCK", text="Stock Actual")
+        self.tree_carrito.column("STOCK", width=80, anchor=CENTER)
+
+        sc_c = ttk.Scrollbar(fr_carrito, orient=VERTICAL,
+                              command=self.tree_carrito.yview)
+        self.tree_carrito.configure(yscrollcommand=sc_c.set)
+        self.tree_carrito.pack(side=LEFT, fill=BOTH, expand=True)
+        sc_c.pack(side=RIGHT, fill=Y)
+
+        # Botón quitar del carrito (clic derecho o botón)
+        ttk.Button(
+            self.tab_salidas,
+            text="🗑️ Quitar seleccionado del carrito",
+            bootstyle="secondary-outline",
+            command=self.quitar_del_carrito
+        ).pack(fill=X, pady=(0, 4))
+
+        # Botón REGISTRAR VALE COMPLETO
+        btn_sal = ttk.Button(
+            self.tab_salidas,
+            text="🔥 REGISTRAR VALE DE SALIDA",
+            bootstyle="danger",
+            state=estado_sal,
+            command=self.procesar_salida_multiple)
+        btn_sal.pack(fill=X, ipady=6)
+        if estado_sal == "disabled":
+            ToolTip(btn_sal, text="No tienes permiso para registrar salidas")
+
+        # Lista interna del carrito: [{id, partida, material, cantidad, stock}]
+        self._carrito = []
+
+        # ──────────────────────────────────────────────────────────────
+        # PESTAÑA 3: CREAR NUEVO MATERIAL
+        # ──────────────────────────────────────────────────────────────
         self.tab_nuevo = ttk.Frame(self.nb_acciones, padding=15)
         self.nb_acciones.add(self.tab_nuevo, text="➕ CREAR NUEVO MATERIAL")
 
-        ttk.Label(self.tab_nuevo, text="Crear Producto", font=("Segoe UI", 12, "bold"), foreground="#2980b9").pack(pady=(0, 15))
-        
+        ttk.Label(self.tab_nuevo, text="Crear Producto",
+                  font=("Segoe UI", 12, "bold"),
+                  foreground="#2980b9").pack(pady=(0, 15))
+
         ttk.Label(self.tab_nuevo, text="Partida:").pack(anchor=W)
         self.cb_partida = ttk.Combobox(self.tab_nuevo, state="readonly")
         self.cb_partida.pack(fill=X, pady=2)
-        
-        ttk.Label(self.tab_nuevo, text="Descripción:").pack(anchor=W, pady=(10, 0))
-        self.txt_desc = tk.Text(self.tab_nuevo, height=4, font=("Segoe UI", 10), wrap="word")
-        self.txt_desc.pack(fill=X, pady=2, padx=1) 
-        
-        # --- NUEVO CAMPO: STOCK INICIAL ---
-        ttk.Label(self.tab_nuevo, text="Cantidad Inicial (Stock):").pack(anchor=W, pady=(10, 0))
-        self.ent_stock_inicial = ttk.Entry(self.tab_nuevo, justify=CENTER, font=("Segoe UI", 10, "bold"))
-        self.ent_stock_inicial.insert(0, "0") # Valor por defecto
-        self.ent_stock_inicial.pack(fill=X, pady=2)
-        # ----------------------------------
 
-        ttk.Label(self.tab_nuevo, text="Factura Inicial:").pack(anchor=W, pady=(10, 0))
+        ttk.Label(self.tab_nuevo,
+                  text="Descripción:").pack(anchor=W, pady=(10, 0))
+        self.txt_desc = tk.Text(self.tab_nuevo, height=4,
+                                font=("Segoe UI", 10), wrap="word")
+        self.txt_desc.pack(fill=X, pady=2, padx=1)
+
+        ttk.Label(self.tab_nuevo,
+                  text="Cantidad Inicial (Stock):").pack(anchor=W, pady=(10, 0))
+        self.ent_stock_inicial = ttk.Entry(
+            self.tab_nuevo, justify=CENTER,
+            font=("Segoe UI", 10, "bold"))
+        self.ent_stock_inicial.insert(0, "")
+        self.ent_stock_inicial.pack(fill=X, pady=2)
+
+        ttk.Label(self.tab_nuevo,
+                  text="Factura Inicial:").pack(anchor=W, pady=(10, 0))
         self.txt_factura_alta = ttk.Entry(self.tab_nuevo)
         self.txt_factura_alta.pack(fill=X, pady=2)
-        
-        # PERMISO CREAR
-        estado_crear = "normal" if self.tiene_permiso('crear') else "disabled"
-        btn_crear = ttk.Button(self.tab_nuevo, text="💾 GUARDAR", bootstyle="info", state=estado_crear,
-                             command=self.agregar_material)
-        btn_crear.pack(fill=X, pady=30, ipady=5)
-        
-        if estado_crear == "disabled": ToolTip(btn_crear, text="No tienes permiso para crear materiales")
 
-        # === PANEL DERECHO: TABLA ===
-        fr_top = ttk.Frame(p_der, padding=(0, 5)); fr_top.pack(fill=X)
-        
-        ttk.Label(fr_top, text="🔍 Buscar:", font=("Segoe UI", 9, "bold")).pack(side=LEFT)
+        estado_crear = "normal" if self.tiene_permiso('crear') else "disabled"
+        btn_crear = ttk.Button(
+            self.tab_nuevo, text="💾 GUARDAR",
+            bootstyle="info", state=estado_crear,
+            command=self.agregar_material)
+        btn_crear.pack(fill=X, pady=30, ipady=5)
+        if estado_crear == "disabled":
+            ToolTip(btn_crear, text="No tienes permiso para crear materiales")
+
+        # === PANEL DERECHO: TABLA DE INVENTARIO ===
+        fr_top = ttk.Frame(p_der, padding=(0, 5))
+        fr_top.pack(fill=X)
+
+        ttk.Label(fr_top, text="🔍 Buscar:",
+                  font=("Segoe UI", 9, "bold")).pack(side=LEFT)
         self.cb_busqueda_material = ttk.Combobox(fr_top, width=30)
         self.cb_busqueda_material.pack(side=LEFT, padx=5)
-        self.cb_busqueda_material.bind("<KeyRelease>", lambda e: self.cargar_tabla_inventario())
-        self.cb_busqueda_material.bind("<<ComboboxSelected>>", self.cargar_tabla_inventario)
+        self.cb_busqueda_material.bind(
+            "<KeyRelease>", lambda e: self.cargar_tabla_inventario())
+        self.cb_busqueda_material.bind(
+            "<<ComboboxSelected>>", self.cargar_tabla_inventario)
 
-        ttk.Label(fr_top, text="📂 Filtrar Partida:", font=("Segoe UI", 9, "bold")).pack(side=LEFT, padx=(15, 5))
-        self.cb_filtro_partida = ttk.Combobox(fr_top, state="readonly", width=15)
+        ttk.Label(fr_top, text="📂 Filtrar Partida:",
+                  font=("Segoe UI", 9, "bold")).pack(side=LEFT, padx=(15, 5))
+        self.cb_filtro_partida = ttk.Combobox(
+            fr_top, state="readonly", width=15)
         self.cb_filtro_partida.pack(side=LEFT, padx=5)
-        self.cb_filtro_partida.bind("<<ComboboxSelected>>", self.cargar_tabla_inventario)
-        
-        ttk.Button(fr_top, text="🔄 Ver Todo", bootstyle="link", command=self.limpiar_filtros).pack(side=LEFT)
+        self.cb_filtro_partida.bind(
+            "<<ComboboxSelected>>", self.cargar_tabla_inventario)
+
+        ttk.Button(fr_top, text="🔄 Ver Todo",
+                   bootstyle="link",
+                   command=self.limpiar_filtros).pack(side=LEFT)
 
         cols = ("ID", "PARTIDA", "MATERIAL", "STOCK")
-        self.tree_inv = ttk.Treeview(p_der, columns=cols, show="headings", bootstyle="info")
-        self.tree_inv.heading("ID", text="ID"); self.tree_inv.column("ID", width=40, anchor=CENTER)
-        self.tree_inv.heading("PARTIDA", text="PARTIDA"); self.tree_inv.column("PARTIDA", width=80, anchor=CENTER)
-        self.tree_inv.heading("MATERIAL", text="DESCRIPCIÓN"); self.tree_inv.column("MATERIAL", width=400)
-        self.tree_inv.heading("STOCK", text="STOCK"); self.tree_inv.column("STOCK", width=80, anchor=CENTER)
-        
-        sc = ttk.Scrollbar(p_der, orient=VERTICAL, command=self.tree_inv.yview)
+        self.tree_inv = ttk.Treeview(
+            p_der, columns=cols, show="headings", bootstyle="info")
+        self.tree_inv.heading("ID", text="ID")
+        self.tree_inv.column("ID", width=40, anchor=CENTER)
+        self.tree_inv.heading("PARTIDA", text="PARTIDA")
+        self.tree_inv.column("PARTIDA", width=80, anchor=CENTER)
+        self.tree_inv.heading("MATERIAL", text="DESCRIPCIÓN")
+        self.tree_inv.column("MATERIAL", width=400)
+        self.tree_inv.heading("STOCK", text="STOCK")
+        self.tree_inv.column("STOCK", width=80, anchor=CENTER)
+
+        sc = ttk.Scrollbar(p_der, orient=VERTICAL,
+                            command=self.tree_inv.yview)
         self.tree_inv.configure(yscrollcommand=sc.set)
         self.tree_inv.pack(side=LEFT, fill=BOTH, expand=True)
         sc.pack(side=RIGHT, fill=Y)
-        self.tree_inv.tag_configure("BAJO", background="#ffcccc", foreground="#8a1f1f")
-
+        self.tree_inv.tag_configure(
+            "BAJO", background="#ffcccc", foreground="#8a1f1f")
         self.tree_inv.bind("<<TreeviewSelect>>", self.on_tree_select)
-        
-        # MENÚ CONTEXTUAL
+
+        # Menú contextual
         self.menu_inv = tk.Menu(self.root, tearoff=0)
-        
-        # PERMISOS PARA MENÚ CONTEXTUAL
         if self.tiene_permiso('editar'):
-            self.menu_inv.add_command(label="✏️ Corregir/Editar Material", command=self.editar_material_seleccionado)
-        
+            self.menu_inv.add_command(
+                label="✏️ Corregir/Editar Material",
+                command=self.editar_material_seleccionado)
         if self.tiene_permiso('eliminar') or self.usuario.get('rol') == 'ADMIN':
             self.menu_inv.add_separator()
-            self.menu_inv.add_command(label="🗑️ Eliminar Material (Solo Admin)", command=self.eliminar_material_seleccionado)
-        
+            self.menu_inv.add_command(
+                label="🗑️ Eliminar Material (Solo Admin)",
+                command=self.eliminar_material_seleccionado)
+
         def mostrar_menu_inv(event):
             item = self.tree_inv.identify_row(event.y)
             if item:
                 self.tree_inv.selection_set(item)
-                estado_borrar = "normal" if self.usuario.get('rol') == 'ADMIN' else "disabled"
+                estado_borrar = ("normal"
+                                 if self.usuario.get('rol') == 'ADMIN'
+                                 else "disabled")
                 try:
-                    self.menu_inv.entryconfig("🗑️ Eliminar Material (Solo Admin)", state=estado_borrar)
-                except: pass
+                    self.menu_inv.entryconfig(
+                        "🗑️ Eliminar Material (Solo Admin)",
+                        state=estado_borrar)
+                except:
+                    pass
                 self.menu_inv.post(event.x_root, event.y_root)
-        
-        if self.tiene_permiso('editar') or self.tiene_permiso('eliminar') or self.usuario.get('rol') == 'ADMIN':
+
+        if (self.tiene_permiso('editar') or
+                self.tiene_permiso('eliminar') or
+                self.usuario.get('rol') == 'ADMIN'):
             self.tree_inv.bind("<Button-3>", mostrar_menu_inv)
+
+
+    # ══════════════════════════════════════════════════════════════════
+    # NUEVOS MÉTODOS DEL CARRITO — AGRÉGALOS EN LA CLASE
+    # ══════════════════════════════════════════════════════════════════
+
+    def agregar_al_carrito(self):
+        """Agrega el material seleccionado en la tabla al carrito."""
+        sel = self.tree_inv.selection()
+        if not sel:
+            messagebox.showwarning(
+                "Atención", "Selecciona un material de la tabla derecha.")
+            return
+
+        item   = self.tree_inv.item(sel[0])
+        vals   = item['values']
+        id_mat, partida, nombre_mat, stock_actual = (
+            vals[0], vals[1], vals[2], float(vals[3]))
+
+        # Validar cantidad
+        try:
+            cantidad = float(self.ent_cant_sal.get())
+            if cantidad <= 0:
+                raise ValueError
+        except:
+            messagebox.showerror("Error", "Ingresa una cantidad válida.")
+            return
+
+        # Verificar que no exceda el stock
+        # (descontando lo que ya hay en el carrito para este material)
+        ya_en_carrito = sum(
+            x['cantidad'] for x in self._carrito
+            if x['id'] == id_mat)
+
+        if cantidad + ya_en_carrito > stock_actual:
+            messagebox.showerror(
+                "Stock insuficiente",
+                f"Stock disponible: {stock_actual - ya_en_carrito}")
+            return
+
+        # Verificar si ya está en el carrito → sumar cantidad
+        for item_c in self._carrito:
+            if item_c['id'] == id_mat:
+                item_c['cantidad'] += cantidad
+                self._refrescar_carrito()
+                self.ent_cant_sal.delete(0, END)
+                return
+
+        # Nuevo item en el carrito
+        self._carrito.append({
+            'id':       id_mat,
+            'partida':  partida,
+            'material': nombre_mat,
+            'cantidad': cantidad,
+            'stock':    stock_actual
+        })
+        self._refrescar_carrito()
+        self.ent_cant_sal.delete(0, END)
+
+    def quitar_del_carrito(self):
+        """Elimina el renglón seleccionado del carrito."""
+        sel = self.tree_carrito.selection()
+        if not sel:
+            messagebox.showwarning("Atención", "Selecciona un item del carrito.")
+            return
+        idx = self.tree_carrito.index(sel[0])
+        self._carrito.pop(idx)
+        self._refrescar_carrito()
+
+    def _refrescar_carrito(self):
+        """Actualiza la tabla visual del carrito."""
+        for i in self.tree_carrito.get_children():
+            self.tree_carrito.delete(i)
+        for item in self._carrito:
+            self.tree_carrito.insert(
+                "", END,
+                values=(item['material'],
+                        item['cantidad'],
+                        item['stock']))
+
+    def procesar_salida_multiple(self):
+        """
+        Procesa TODOS los materiales del carrito en UNA sola transacción
+        y genera UN solo vale PDF con todos los renglones.
+        """
+        if not self._carrito:
+            messagebox.showwarning(
+                "Carrito vacío",
+                "Agrega al menos un material al carrito antes de registrar.")
+            return
+
+        destino     = self.cb_area_sal.get().strip().upper()  or "S/N"
+        responsable = self.ent_resp_sal.get().strip().upper() or "S/N"
+        entrego     = self.cb_jefe_sal.get().strip().upper()  or "S/N"
+
+        if destino == "S/N" or responsable == "S/N":
+            messagebox.showwarning(
+                "Faltan datos",
+                "Completa el Área y el nombre de quien solicita.")
+            return
+
+        # Confirmación
+        resumen = "\n".join(
+            f"  • {x['material'][:40]}  →  {x['cantidad']} pzas"
+            for x in self._carrito)
+
+        if not messagebox.askyesno(
+                "Confirmar Vale de Salida",
+                f"Se registrarán {len(self._carrito)} material(es):\n\n"
+                f"{resumen}\n\n"
+                f"Área: {destino}\nSolicita: {responsable}"):
+            return
+
+        fecha      = datetime.now().strftime("%d/%m/%Y")
+        fecha_full = datetime.now().strftime("%d/%m/%Y %H:%M")
+        folio      = self.generar_folio()
+
+        # ── TRANSACCIÓN ATÓMICA ────────────────────────────────────────
+        try:
+            with self.db.conectar() as conn:
+                conn.execute("BEGIN")
+                try:
+                    for item in self._carrito:
+                        nuevo_stock = item['stock'] - item['cantidad']
+
+                        # Actualizar stock
+                        conn.execute(
+                            "UPDATE inventario SET stock=?, "
+                            "ultimo_movimiento=? WHERE id=?",
+                            (nuevo_stock, fecha, item['id']))
+
+                        # Historial individual por material
+                        conn.execute(
+                            "INSERT INTO historial "
+                            "(fecha_hora, tipo, partida, material, cantidad, "
+                            "destino, responsable, entrego, factura) "
+                            "VALUES (?,?,?,?,?,?,?,?,?)",
+                            (fecha_full, "SALIDA",
+                             item['partida'], item['material'],
+                             item['cantidad'],
+                             destino, responsable, entrego, folio))
+
+                    conn.commit()
+
+                except Exception as e:
+                    conn.rollback()
+                    messagebox.showerror(
+                        "Error crítico",
+                        f"Vale cancelado. BD no modificada.\n\n{e}")
+                    return
+
+            # ── GENERAR PDF CON TODOS LOS MATERIALES ──────────────────
+            self.generar_pdf_vale_multiple(
+                self._carrito, destino, responsable, entrego, folio)
+
+            messagebox.showinfo(
+                "✅ Éxito",
+                f"Vale {folio} registrado con "
+                f"{len(self._carrito)} material(es).")
+
+            # Limpiar carrito y campos
+            self._carrito = []
+            self._refrescar_carrito()
+            self.ent_resp_sal.delete(0, END)
+
+            self.cargar_tabla_inventario()
+            self.cargar_tabla_historial()
+
+        except Exception as e:
+            messagebox.showerror("Error de conexión", f"{e}")
+
 
 
     def on_tree_select(self, event):
@@ -1153,281 +2064,442 @@ class SistemaInventario:
     def abrir_menu_admin(self):
         top = tk.Toplevel(self.root)
         top.title("Administración del Sistema")
-        # Aumentamos un poco la altura para el nuevo botón
-        self.centrar_ventana_emergente(top, 420, 580) 
-        
+        self.centrar_ventana_emergente(top, 420, 630)
+
         fr = ttk.Frame(top, padding=20)
         fr.pack(fill=BOTH, expand=True)
-        
-        # Encabezado del menú con info de rol
+
+    # Encabezado del menú con info de rol
         rol_actual = self.usuario.get('rol', 'OPERADOR')
         es_admin_rol = (rol_actual == 'ADMIN')
 
-        ttk.Label(fr, text="Menú de Configuración", font=("Segoe UI", 14, "bold"), justify=CENTER).pack(pady=(0, 5))
-        
-        if not es_admin_rol:
-            ttk.Label(fr, text="Modo Restringido: Según tus permisos.", 
-                     bootstyle="warning", font=("Segoe UI", 9)).pack(pady=(0, 15))
-        else:
-             ttk.Label(fr, text="Modo Administrador: Acceso total.", 
-                     bootstyle="success", font=("Segoe UI", 9)).pack(pady=(0, 15))
-    
-        # --- BOTONES ---
+        ttk.Label(fr, text="Menú de Configuración",
+                font=("Segoe UI", 14, "bold"), justify=CENTER).pack(pady=(0, 5))
 
-        # 1. Gestión de Usuarios (SOLO ADMIN ROL)
-        # Esto es demasiado sensible para delegarlo por permiso simple.
+        if not es_admin_rol:
+            ttk.Label(fr, text="Modo Restringido: Según tus permisos.",
+                    bootstyle="warning", font=("Segoe UI", 9)).pack(pady=(0, 15))
+        else:
+            ttk.Label(fr, text="Modo Administrador: Acceso total.",
+                     bootstyle="success", font=("Segoe UI", 9)).pack(pady=(0, 15))
+
+    # --- BOTONES ---
+
+    # 1. Gestión de Usuarios (SOLO ADMIN ROL)
         estado_users = "normal" if es_admin_rol else "disabled"
-        ttk.Button(fr, text="👥  Gestionar Usuarios y Permisos", bootstyle="primary", state=estado_users,
-                   command=self.abrir_gestion_usuarios).pack(fill=X, pady=8, ipady=8)
-        
+        ttk.Button(fr, text="👥  Gestionar Usuarios y Permisos", bootstyle="primary",
+                state=estado_users,
+                command=self.abrir_gestion_usuarios).pack(fill=X, pady=8, ipady=8)
+
         ttk.Separator(fr).pack(fill=X, pady=10)
 
-        # 2. Temas (Configuración visual básica permitida a todos)
+    # 2. Temas
         ttk.Button(fr, text="🎨  Personalizar Temas y Colores", bootstyle="info",
                 command=self.abrir_editor_temas).pack(fill=X, pady=8, ipady=8)
-                
-        # 3. Catálogos (Permiso 'catalogos')
+
+    # 3. Catálogos
         estado_cat = "normal" if self.tiene_permiso('catalogos') else "disabled"
-        btn_cat = ttk.Button(fr, text="📋  Gestión de Catálogos (Partidas)", bootstyle="warning",
-                             state=estado_cat, command=self.abrir_gestor_catalogos)
+        btn_cat = ttk.Button(fr, text="📋  Gestión de Catálogos (Partidas)",
+                            bootstyle="warning", state=estado_cat,
+                            command=self.abrir_gestor_catalogos)
         btn_cat.pack(fill=X, pady=8, ipady=8)
-        if estado_cat == "disabled": ToolTip(btn_cat, text="No tienes permiso para editar catálogos")
-                
-        # 4. Histórico (Permiso 'historico')
+        if estado_cat == "disabled":
+            ToolTip(btn_cat, text="No tienes permiso para editar catálogos")
+
+    # 4. Histórico
         estado_hist = "normal" if self.tiene_permiso('historico') else "disabled"
-        btn_hist = ttk.Button(fr, text="📅  Modificar Histórico (Pasado)", bootstyle="danger",
-                           state=estado_hist, command=self.abrir_registro_pasado)
+        btn_hist = ttk.Button(fr, text="📅  Modificar Histórico (Pasado)",
+                            bootstyle="danger", state=estado_hist,
+                            command=self.abrir_registro_pasado)
         btn_hist.pack(fill=X, pady=8, ipady=8)
-        if estado_hist == "disabled": ToolTip(btn_hist, text="No tienes permiso para modificar el historial")
-                
-        # 5. Ajustes Visuales (Permiso 'ajustes')
+        if estado_hist == "disabled":
+            ToolTip(btn_hist, text="No tienes permiso para modificar el historial")
+
+    # 5. Ajustes Visuales
         estado_conf = "normal" if self.tiene_permiso('ajustes') else "disabled"
-        btn_ajustes = ttk.Button(fr, text="⚙️  Ajustes del Sistema (Logos)", bootstyle="secondary",
-                              state=estado_conf, command=self.abrir_ajustes_visuales)
+        btn_ajustes = ttk.Button(fr, text="⚙️  Ajustes del Sistema (Logos)",
+                                bootstyle="secondary", state=estado_conf,
+                                command=self.abrir_ajustes_visuales)
         btn_ajustes.pack(fill=X, pady=8, ipady=8)
-        if estado_conf == "disabled": ToolTip(btn_ajustes, text="No tienes permiso para cambiar logos")
-        
-        ttk.Button(fr, text="Cerrar Menú", bootstyle="outline", command=top.destroy).pack(side=BOTTOM, fill=X, pady=(20, 0))
+        if estado_conf == "disabled":
+            ToolTip(btn_ajustes, text="No tienes permiso para cambiar logos")
+
+        ttk.Separator(fr).pack(fill=X, pady=10)
+
+    # 6. ─── CERRAR SESIÓN ───
+        def cerrar_sesion():
+            top.destroy()
+            if messagebox.askyesno(
+                "Cerrar Sesión",
+                f"¿Deseas cerrar la sesión del usuario '{self.usuario['usuario']}'?\n\n"
+                "Volverás a la pantalla de inicio de sesión."
+            ):
+            # Limpiar ventana principal
+                for widget in self.root.winfo_children():
+                    widget.destroy()
+
+            # Ocultar ventana mientras reconstruye
+                self.root.withdraw()
+
+            # Volver al login
+                def volver_login():
+                    LoginWindow(self.root, self.db, lambda user_data: iniciar_app_principal(user_data))
+
+                def iniciar_app_principal(usuario_data):
+                    for widget in self.root.winfo_children():
+                        widget.destroy()
+                    self.root.withdraw()
+                    SistemaInventario(self.root, self.db, usuario_data)
+                    try:
+                        self.root.state('zoomed')
+                    except:
+                        self.root.attributes('-zoomed', True)
+                    self.root.update_idletasks()
+                    self.root.deiconify()
+
+                volver_login()
+
+        ttk.Button(fr, text="🔒  Cerrar Sesión", bootstyle="danger",
+                command=cerrar_sesion).pack(fill=X, pady=8, ipady=8)
+
+        ttk.Separator(fr).pack(fill=X, pady=5)
+
+        ttk.Button(fr, text="Cerrar Menú", bootstyle="outline",
+                command=top.destroy).pack(side=BOTTOM, fill=X, pady=(10, 0))
 
     def abrir_gestor_catalogos(self):
-        # 1. Configurar Ventana
         top = tk.Toplevel(self.root)
         top.title("Gestión de Catálogos")
-        # Hacemos la ventana redimensionable y con un tamaño mínimo
         top.geometry("700x600")
-        top.minsize(600, 500) 
-        
-        # Contenedor principal que se expande
+        top.minsize(600, 500)
+
         main_frame = ttk.Frame(top)
         main_frame.pack(fill=BOTH, expand=True, padx=10, pady=10)
-        
+
         tabs = ttk.Notebook(main_frame)
         tabs.pack(fill=BOTH, expand=True)
-        
-        # --- PESTAÑA ESPECIAL PARA PARTIDAS (Con Descripción) ---
+
+        # ══════════════════════════════════════════════
+        # PESTAÑA PARTIDAS
+        # ══════════════════════════════════════════════
         fr_part = ttk.Frame(tabs, padding=15)
         tabs.add(fr_part, text="📂 Partidas (Códigos)")
-        
-        ttk.Label(fr_part, text="Catálogo de Partidas Presupuestales:", font=("Segoe UI", 10, "bold")).pack(anchor=W)
-        ttk.Label(fr_part, text="* Selecciona una fila para editar su descripción", font=("Segoe UI", 8), foreground="gray").pack(anchor=W, pady=(0, 5))
-        
-        # Frame para la tabla (para que el scrollbar se pegue bien)
+
+        ttk.Label(
+            fr_part,
+            text="Catálogo de Partidas Presupuestales:",
+            font=("Segoe UI", 10, "bold")
+        ).pack(anchor=W)
+
+        ttk.Label(
+            fr_part,
+            text="* Selecciona una fila para editar su descripción",
+            font=("Segoe UI", 8), foreground="gray"
+        ).pack(anchor=W, pady=(0, 5))
+
         fr_tree_container = ttk.Frame(fr_part)
         fr_tree_container.pack(fill=BOTH, expand=True, pady=5)
 
-        # Lista con columnas
         cols_p = ("CODIGO", "DESCRIPCION")
-        tree_part = ttk.Treeview(fr_tree_container, columns=cols_p, show="headings")
-        
-        tree_part.heading("CODIGO", text="Código"); 
-        tree_part.column("CODIGO", width=100, anchor=CENTER, stretch=False) # Código no se estira tanto
-        tree_part.heading("DESCRIPCION", text="Descripción"); 
-        tree_part.column("DESCRIPCION", width=400, stretch=True) # Descripción ocupa el resto
-        
-        sc_p = ttk.Scrollbar(fr_tree_container, orient=VERTICAL, command=tree_part.yview)
+        tree_part = ttk.Treeview(
+            fr_tree_container, columns=cols_p, show="headings")
+        tree_part.heading("CODIGO", text="Código")
+        tree_part.column( "CODIGO", width=100,
+                          anchor=CENTER, stretch=False)
+        tree_part.heading("DESCRIPCION", text="Descripción")
+        tree_part.column( "DESCRIPCION", width=400, stretch=True)
+
+        sc_p = ttk.Scrollbar(
+            fr_tree_container, orient=VERTICAL,
+            command=tree_part.yview)
         tree_part.configure(yscrollcommand=sc_p.set)
-        
         tree_part.pack(side=LEFT, fill=BOTH, expand=True)
         sc_p.pack(side=RIGHT, fill=Y)
-        
-        def cargar_partidas():
-            # Guardar selección actual si existe
-            sel_id = tree_part.selection()
-            prev_cod = tree_part.item(sel_id[0])['values'][0] if sel_id else None
 
-            for i in tree_part.get_children(): tree_part.delete(i)
-            
-            # Consultamos catalogos y unimos con descripciones
-            filas = self.db.consultar("SELECT valor FROM catalogos WHERE tipo='PARTIDA' ORDER BY valor ASC")
+        def cargar_partidas():
+            sel_id   = tree_part.selection()
+            prev_cod = (tree_part.item(sel_id[0])['values'][0]
+                        if sel_id else None)
+            for i in tree_part.get_children():
+                tree_part.delete(i)
+            filas = self.db.consultar(
+                "SELECT valor FROM catalogos "
+                "WHERE tipo='PARTIDA' ORDER BY valor ASC")
             for f in filas:
-                cod = f['valor']
-                # Buscar descripción
-                desc_res = self.db.consultar("SELECT descripcion FROM partidas_desc WHERE codigo=?", (cod,))
-                nombre = desc_res[0]['descripcion'] if desc_res else "(Sin descripción)"
-                item = tree_part.insert("", END, values=(cod, nombre))
-                
-                # Restaurar selección
+                cod      = f['valor']
+                desc_res = self.db.consultar(
+                    "SELECT descripcion FROM partidas_desc "
+                    "WHERE codigo=?", (cod,))
+                nombre = (desc_res[0]['descripcion']
+                          if desc_res else "(Sin descripción)")
+                item = tree_part.insert(
+                    "", END, values=(cod, nombre))
                 if prev_cod and str(cod) == str(prev_cod):
                     tree_part.selection_set(item)
                     tree_part.see(item)
 
         cargar_partidas()
 
-        # --- ÁREA DE EDICIÓN (Inferior) ---
-        fr_add_p = ttk.LabelFrame(fr_part, text=" Editar / Agregar ", padding=10, bootstyle="info")
+        # Área de edición
+        fr_add_p = ttk.LabelFrame(
+            fr_part, text=" Editar / Agregar ",
+            padding=10, bootstyle="info")
         fr_add_p.pack(fill=X, pady=10)
-        
-        # Grid para alinear mejor
-        fr_add_p.columnconfigure(1, weight=1) # La columna de descripción se estira
+        fr_add_p.columnconfigure(1, weight=1)
 
-        ttk.Label(fr_add_p, text="Código:").grid(row=0, column=0, padx=5, sticky=W)
-        e_cod = ttk.Entry(fr_add_p, width=15, font=("Segoe UI", 10, "bold"))
+        ttk.Label(fr_add_p, text="Código:").grid(
+            row=0, column=0, padx=5, sticky=W)
+        e_cod = ttk.Entry(
+            fr_add_p, width=15,
+            font=("Segoe UI", 10, "bold"))
         e_cod.grid(row=1, column=0, padx=5, sticky=EW)
-        
-        ttk.Label(fr_add_p, text="Descripción (Nombre Largo):").grid(row=0, column=1, padx=5, sticky=W)
+
+        ttk.Label(
+            fr_add_p,
+            text="Descripción (Nombre Largo):"
+        ).grid(row=0, column=1, padx=5, sticky=W)
         e_desc = ttk.Entry(fr_add_p, width=40)
         e_desc.grid(row=1, column=1, padx=5, sticky=EW)
 
-        # FUNCIONALIDAD DE SELECCIÓN (CLICK EN TABLA)
-        def al_seleccionar(event):
+        # ✅ Tab entre campos de partida
+        e_cod.bind("<Tab>",
+            lambda e: (e_desc.focus_set(), "break")[1])
+        e_desc.bind("<Shift-Tab>",
+            lambda e: (e_cod.focus_set(), "break")[1])
+
+        def al_seleccionar_partida(event):
             sel = tree_part.selection()
-            if not sel: return
-            item = tree_part.item(sel[0])
-            valores = item['values']
-            
-            # Llenar campos
-            e_cod.delete(0, END); e_cod.insert(0, valores[0])
-            e_desc.delete(0, END); e_desc.insert(0, valores[1])
-            
-        tree_part.bind("<<TreeviewSelect>>", al_seleccionar)
+            if not sel:
+                return
+            vals = tree_part.item(sel[0])['values']
+            e_cod.delete(0, END)
+            e_cod.insert(0, vals[0])
+            e_desc.delete(0, END)
+            e_desc.insert(0, vals[1])
+
+        tree_part.bind("<<TreeviewSelect>>",
+                        al_seleccionar_partida)
 
         def guardar_partida():
             c = e_cod.get().strip().upper()
             d = e_desc.get().strip().upper()
-            if not c: 
-                messagebox.showwarning("Error", "El código es obligatorio", parent=top)
+            if not c:
+                messagebox.showwarning(
+                    "Error",
+                    "El código es obligatorio",
+                    parent=top)
+                top.lift()
                 return
-            
-            # 1. Guardar en Catalogos (Lista simple) - INSERT OR IGNORE para no duplicar error
-            existe = self.db.consultar("SELECT * FROM catalogos WHERE tipo='PARTIDA' AND valor=?", (c,))
+            existe = self.db.consultar(
+                "SELECT * FROM catalogos "
+                "WHERE tipo='PARTIDA' AND valor=?", (c,))
             if not existe:
-                self.db.ejecutar("INSERT INTO catalogos (tipo, valor) VALUES ('PARTIDA', ?)", (c,))
-            
-            # 2. Guardar Descripción (REPLACE actualiza si ya existe, inserta si es nuevo)
-            self.db.ejecutar("REPLACE INTO partidas_desc (codigo, descripcion) VALUES (?, ?)", (c, d))
-            
-            # Limpiar y recargar
-            e_cod.delete(0, END); e_desc.delete(0, END)
+                self.db.ejecutar(
+                    "INSERT INTO catalogos (tipo, valor) "
+                    "VALUES ('PARTIDA', ?)", (c,))
+            self.db.ejecutar(
+                "REPLACE INTO partidas_desc "
+                "(codigo, descripcion) VALUES (?, ?)", (c, d))
+            e_cod.delete(0, END)
+            e_desc.delete(0, END)
             cargar_partidas()
             self.actualizar_combos()
-            
-            # --- CAMBIO IMPORTANTE AQUÍ: parent=top y top.lift() ---
-            messagebox.showinfo("Guardado", f"Partida {c} guardada/actualizada correctamente.", parent=top)
-            top.lift() # Fuerza a la ventana a ponerse al frente de nuevo
-            # -------------------------------------------------------
+            messagebox.showinfo(
+                "Guardado",
+                f"Partida {c} guardada/actualizada.",
+                parent=top)
+            top.lift()
+            e_cod.focus_set()
 
-        # Botones grandes y claros
+        # ✅ Enter guarda en ambos campos
+        e_cod.bind( "<Return>", lambda e: guardar_partida())
+        e_desc.bind("<Return>", lambda e: guardar_partida())
+
         btn_frame = ttk.Frame(fr_add_p)
         btn_frame.grid(row=1, column=2, padx=10)
-        
-        ttk.Button(btn_frame, text="💾 Guardar / Actualizar", bootstyle="success", command=guardar_partida).pack(fill=X)
-        
+        ttk.Button(
+            btn_frame,
+            text="💾 Guardar / Actualizar",
+            bootstyle="success",
+            command=guardar_partida
+        ).pack(fill=X)
+
         def eliminar_partida():
             sel = tree_part.selection()
-            if not sel: 
-                messagebox.showwarning("Atención", "Selecciona una partida de la lista para eliminar.", parent=top)
+            if not sel:
+                messagebox.showwarning(
+                    "Atención",
+                    "Selecciona una partida para eliminar.",
+                    parent=top)
                 return
-            item = tree_part.item(sel[0])
-            cod = item['values'][0]
-            
-            # --- CAMBIO IMPORTANTE AQUÍ TAMBIÉN ---
-            if messagebox.askyesno("Confirmar", f"¿Borrar partida {cod}?\nSe eliminará del catálogo (no del historial).", parent=top):
-                self.db.ejecutar("DELETE FROM catalogos WHERE tipo='PARTIDA' AND valor=?", (cod,))
-                self.db.ejecutar("DELETE FROM partidas_desc WHERE codigo=?", (cod,))
+            cod = tree_part.item(sel[0])['values'][0]
+            if messagebox.askyesno(
+                    "Confirmar",
+                    f"¿Borrar partida {cod}?",
+                    parent=top):
+                self.db.ejecutar(
+                    "DELETE FROM catalogos "
+                    "WHERE tipo='PARTIDA' AND valor=?", (cod,))
+                self.db.ejecutar(
+                    "DELETE FROM partidas_desc "
+                    "WHERE codigo=?", (cod,))
                 cargar_partidas()
                 self.actualizar_combos()
-                e_cod.delete(0, END); e_desc.delete(0, END)
-                top.lift() # Asegurar que no se esconda al borrar
+                e_cod.delete(0, END)
+                e_desc.delete(0, END)
+                top.lift()
 
-        ttk.Button(fr_part, text="🗑️ Eliminar Seleccionada", bootstyle="danger", command=eliminar_partida).pack(fill=X, pady=(0,5))
+        ttk.Button(
+            fr_part,
+            text="🗑️ Eliminar Seleccionada",
+            bootstyle="danger",
+            command=eliminar_partida
+        ).pack(fill=X, pady=(0, 5))
 
-        # --- PESTAÑAS SIMPLES (Area, Jefe) ---
-        # Se mantienen igual pero con layout mejorado
+        # ══════════════════════════════════════════════
+        # PESTAÑAS SIMPLES (Áreas y Jefes)
+        # ══════════════════════════════════════════════
         def crear_tab_lista_simple(tipo_cat, titulo):
             fr = ttk.Frame(tabs, padding=15)
             tabs.add(fr, text=titulo)
-            
+
             fr_list_cont = ttk.Frame(fr)
             fr_list_cont.pack(fill=BOTH, expand=True, pady=5)
-            
+
             lst = tk.Listbox(fr_list_cont, height=10)
             lst.pack(side=LEFT, fill=BOTH, expand=True)
-            
-            sb = ttk.Scrollbar(fr_list_cont, orient=VERTICAL, command=lst.yview)
+
+            sb = ttk.Scrollbar(
+                fr_list_cont, orient=VERTICAL,
+                command=lst.yview)
             sb.pack(side=RIGHT, fill=Y)
             lst.config(yscrollcommand=sb.set)
 
             def cargar():
                 lst.delete(0, END)
-                fs = self.db.consultar("SELECT valor FROM catalogos WHERE tipo=? ORDER BY valor ASC", (tipo_cat,))
-                for x in fs: lst.insert(END, x['valor'])
+                fs = self.db.consultar(
+                    "SELECT valor FROM catalogos "
+                    "WHERE tipo=? ORDER BY valor ASC",
+                    (tipo_cat,))
+                for x in fs:
+                    lst.insert(END, x['valor'])
+
             cargar()
-            
+
             fr_controls = ttk.Frame(fr)
             fr_controls.pack(fill=X, pady=5)
-            
+
             e_val = ttk.Entry(fr_controls)
-            e_val.pack(side=LEFT, fill=X, expand=True, padx=(0,5))
-            
+            e_val.pack(
+                side=LEFT, fill=X,
+                expand=True, padx=(0, 5))
+
             def add():
                 v = e_val.get().strip().upper()
-                if v: 
-                    self.db.ejecutar("INSERT INTO catalogos (tipo, valor) VALUES (?, ?)", (tipo_cat, v))
-                    e_val.delete(0, END); cargar(); self.actualizar_combos()
-            
+                if v:
+                    self.db.ejecutar(
+                        "INSERT INTO catalogos "
+                        "(tipo, valor) VALUES (?, ?)",
+                        (tipo_cat, v))
+                    e_val.delete(0, END)
+                    cargar()
+                    self.actualizar_combos()
+                    e_val.focus_set()
+
             def delete():
                 s = lst.curselection()
-                if s: 
+                if s:
                     v = lst.get(s[0])
-                    self.db.ejecutar("DELETE FROM catalogos WHERE tipo=? AND valor=?", (tipo_cat, v))
-                    cargar(); self.actualizar_combos()
-            
-            ttk.Button(fr_controls, text="➕ Agregar", bootstyle="success", command=add).pack(side=LEFT)
-            ttk.Button(fr, text="🗑️ Eliminar Seleccionado", bootstyle="danger", command=delete).pack(fill=X)
+                    if messagebox.askyesno(
+                            "Confirmar",
+                            f"¿Eliminar '{v}'?",
+                            parent=top):
+                        self.db.ejecutar(
+                            "DELETE FROM catalogos "
+                            "WHERE tipo=? AND valor=?",
+                            (tipo_cat, v))
+                        cargar()
+                        self.actualizar_combos()
+                        top.lift()
+
+            # ✅ Enter agrega el elemento
+            e_val.bind("<Return>", lambda e: add())
+
+            ttk.Button(
+                fr_controls,
+                text="➕ Agregar",
+                bootstyle="success",
+                command=add
+            ).pack(side=LEFT)
+
+            ttk.Button(
+                fr,
+                text="🗑️ Eliminar Seleccionado",
+                bootstyle="danger",
+                command=delete
+            ).pack(fill=X)
 
         crear_tab_lista_simple("AREA", "🏢 Áreas")
         crear_tab_lista_simple("JEFE", "👤 Jefes")
 
-        # ==========================================================
-        # --- NUEVA PESTAÑA: CÓNSTAME (FIRMA) ---
-        # ==========================================================
+        # ══════════════════════════════════════════════
+        # PESTAÑA CÓNSTAME
+        # ══════════════════════════════════════════════
         fr_const = ttk.Frame(tabs, padding=15)
         tabs.add(fr_const, text="✍️ Cónstame")
-        
-        ttk.Label(fr_const, text="Nombre / Firma de Autoridad (Cónstame):", font=("Segoe UI", 10, "bold")).pack(anchor=W)
-        ttk.Label(fr_const, text="Este nombre aparecerá en la parte inferior de los Vales de Salida PDF.", font=("Segoe UI", 8), foreground="gray").pack(anchor=W, pady=(0, 10))
-        
+
+        ttk.Label(
+            fr_const,
+            text="Nombre / Firma de Autoridad (Cónstame):",
+            font=("Segoe UI", 10, "bold")
+        ).pack(anchor=W)
+
+        ttk.Label(
+            fr_const,
+            text="Este nombre aparece en la parte inferior "
+                 "de los Vales de Salida PDF.",
+            font=("Segoe UI", 8), foreground="gray"
+        ).pack(anchor=W, pady=(0, 10))
+
         e_const = ttk.Entry(fr_const, font=("Segoe UI", 11))
         e_const.pack(fill=X, pady=5)
-        
-        # Cargar el valor actual de la base de datos
-        res_firma = self.db.consultar("SELECT valor FROM catalogos WHERE tipo='FIRMA'")
+
+        # Cargar valor actual
+        res_firma = self.db.consultar(
+            "SELECT valor FROM catalogos WHERE tipo='FIRMA'")
         if res_firma:
             e_const.insert(0, res_firma[0]['valor'])
-            
+
         def guardar_constame():
             nueva_firma = e_const.get().strip().upper()
             if nueva_firma:
-                # Borramos el anterior y guardamos el nuevo para que solo exista uno
-                self.db.ejecutar("DELETE FROM catalogos WHERE tipo='FIRMA'")
-                self.db.ejecutar("INSERT INTO catalogos (tipo, valor) VALUES ('FIRMA', ?)", (nueva_firma,))
-                messagebox.showinfo("Guardado", "Firma 'Cónstame' actualizada correctamente para los próximos PDFs.", parent=top)
+                self.db.ejecutar(
+                    "DELETE FROM catalogos WHERE tipo='FIRMA'")
+                self.db.ejecutar(
+                    "INSERT INTO catalogos (tipo, valor) "
+                    "VALUES ('FIRMA', ?)", (nueva_firma,))
+                messagebox.showinfo(
+                    "Guardado",
+                    "Firma 'Cónstame' actualizada correctamente.",
+                    parent=top)
                 top.lift()
+                e_const.focus_set()
             else:
-                messagebox.showwarning("Atención", "El campo no puede estar vacío.", parent=top)
+                messagebox.showwarning(
+                    "Atención",
+                    "El campo no puede estar vacío.",
+                    parent=top)
                 top.lift()
-                
-        ttk.Button(fr_const, text="💾 Guardar Firma", bootstyle="success", command=guardar_constame).pack(pady=15, fill=X)
+
+        # ✅ Enter guarda la firma
+        e_const.bind("<Return>", lambda e: guardar_constame())
+
+        ttk.Button(
+            fr_const,
+            text="💾 Guardar Firma",
+            bootstyle="success",
+            command=guardar_constame
+        ).pack(pady=15, fill=X)
 
 
     def actualizar_combos(self):
@@ -1619,137 +2691,357 @@ class SistemaInventario:
     # --- REEMPLAZA ESTA FUNCIÓN COMPLETA (AJUSTE DE FIRMAS) ---
     # --- REEMPLAZA ESTA FUNCIÓN COMPLETA (CORRECCIÓN DE ANCHO DE TEXTO) ---
     # --- REEMPLAZA ESTA FUNCIÓN COMPLETA (AJUSTE FINAL DE POSICIÓN DEL LOGO) ---
-    def generar_pdf_vale(self, material, cantidad, area, resp, jefe, folio):
+    def generar_pdf_vale_multiple(self, carrito, area, resp, jefe, folio):
         """
-        Genera el PDF usando el TÍTULO PRINCIPAL (Empresa) y SUBTÍTULO (Depto)
-        configurados en los Ajustes del Sistema.
+        Vale de Salida — Tamaño Carta (8.5 × 11 in).
+        Regla de renglones:
+          • Mínimo 4 renglones siempre visibles.
+          • Si hay más de 4 materiales → exactamente len(carrito) renglones.
+          • Encabezado ordenado: logo izq + título centro + subtítulo.
+          • Firmas siempre fijas al pie de la hoja.
         """
         try:
-            # 1. Definir Ruta (Escritorio)
-            escritorio = os.path.join(os.environ['USERPROFILE'], 'Desktop')
-            nombre_limpio = f"VALE_{folio.replace('/', '-')}.pdf"
-            ruta_pdf = os.path.join(escritorio, nombre_limpio)
+            from matplotlib.patches import Rectangle
+            from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+            from PIL import Image as PilImage
 
-            # 2. Obtener Datos de la BD
-            # AQUI ESTÁ EL CAMBIO: Usamos TITULO_APP y SUBTITULO_APP
-            # Esto te permite poner "UNINDETEC" arriba y "DEPARTAMENTO DE CÓMPUTO" abajo
-            # editando solo los cuadros de texto de "Títulos de la Ventana" en Ajustes.
-            
-            empresa_titulo = self.db.get_config("TITULO_APP") 
-            if not empresa_titulo: empresa_titulo = "NOMBRE EMPRESA" # Default
-            
-            depto_subtitulo = self.db.get_config("SUBTITULO_APP")
-            if not depto_subtitulo: depto_subtitulo = "DEPARTAMENTO" # Default
-            
-            # Recuperar firma configurada
-            res_firma = self.db.consultar("SELECT valor FROM catalogos WHERE tipo='FIRMA'")
+            # ── Ruta de salida ─────────────────────────────────────────
+            escritorio = os.path.join(os.environ['USERPROFILE'], 'Desktop')
+            ruta_pdf   = os.path.join(
+                escritorio,
+                f"VALE_{folio.replace('/', '-')}.pdf"
+            )
+
+            # ── Datos de configuración ─────────────────────────────────
+            empresa_titulo  = self.db.get_config("TITULO_APP")    or "NOMBRE EMPRESA"
+            depto_subtitulo = self.db.get_config("SUBTITULO_APP") or "DEPARTAMENTO"
+            res_firma       = self.db.consultar(
+                "SELECT valor FROM catalogos WHERE tipo='FIRMA'"
+            )
             firma_constame = res_firma[0]['valor'] if res_firma else "AUTORIDAD"
-            
-            # 3. Configuración Gráfica
-            plt.switch_backend('Agg') 
-            fig = plt.figure(figsize=(8.5, 11)) 
-            ax = fig.add_subplot(111)
+
+            # ── Tamaño de fuente adaptable al largo del título ─────────
+            n = len(empresa_titulo)
+            if   n <= 12:  fs_titulo = 22
+            elif n <= 20:  fs_titulo = 19
+            elif n <= 30:  fs_titulo = 16
+            elif n <= 42:  fs_titulo = 13
+            elif n <= 55:  fs_titulo = 11
+            else:          fs_titulo = 9
+
+            # ── Figura tamaño carta SIN recorte automático ─────────────
+            plt.switch_backend('Agg')
+            fig = plt.figure(figsize=(8.5, 11))
+            ax  = fig.add_subplot(111)
             ax.set_xlim(0, 8.5)
             ax.set_ylim(0, 11)
             ax.axis('off')
-            
-            AZUL_OSCURO = "#1F4E79"
-            ROJO_FOLIO = "#C00000"
-            
-            # --- A. LOGO ---
-            logo_path = self.db.get_config("LOGO_PDF")
-            if not logo_path or not os.path.exists(logo_path):
-                 logo_path = self.db.get_config("LOGO_APP")
 
+            # Márgenes exactos en fracción de la figura
+            fig.subplots_adjust(
+                left   = 0.04,
+                right  = 0.96,
+                top    = 0.97,
+                bottom = 0.03
+            )
+
+            AZUL = "#1F4E79"
+            ROJO = "#C00000"
+
+            # ── Columnas X ────────────────────────────────────────────
+            X_INI  = 0.40
+            X_COL1 = 1.65
+            X_COL2 = 2.90
+            X_FIN  = 8.10
+            X_MID  = (X_INI + X_FIN) / 2   # = 4.25
+
+            # ══════════════════════════════════════════════════════════
+            # ENCABEZADO
+            # ══════════════════════════════════════════════════════════
+
+            # 1. Barra azul decorativa superior
+            ax.add_patch(Rectangle(
+                (X_INI, 10.70), X_FIN - X_INI, 0.10,
+                facecolor=AZUL, zorder=2
+            ))
+
+            # 2. Logo — izquierda, alineado con el bloque de títulos
+            logo_path = (
+                self.db.get_config("LOGO_PDF") or
+                self.db.get_config("LOGO_APP")
+            )
+            logo_cargado = False
             if logo_path and os.path.exists(logo_path):
                 try:
-                    img = mpimg.imread(logo_path)
-                    ax_logo = fig.add_axes([0.15, 0.88, 0.12, 0.10], anchor='NW', zorder=1)
-                    ax_logo.imshow(img)
-                    ax_logo.axis('off')
-                except: pass
+                    img_pil  = PilImage.open(logo_path).copy()
+                    img_pil.thumbnail((140, 140), PilImage.LANCZOS)
+                    img_rgba = img_pil.convert("RGBA")
+                    fondo    = PilImage.new("RGBA", img_rgba.size, "#FFFFFF")
+                    fondo.paste(img_rgba, mask=img_rgba.split()[3])
+                    img_np   = np.array(fondo.convert("RGB"))
+                    zoom     = 55 / max(img_np.shape[0], img_np.shape[1])
+                    imagebox = OffsetImage(img_np, zoom=zoom)
+                    imagebox.image.axes = ax
+                    ab = AnnotationBbox(
+                        imagebox,
+                        (X_INI + 0.50, 10.32),
+                        frameon=False,
+                        box_alignment=(0.5, 0.5),
+                        zorder=3
+                    )
+                    ax.add_artist(ab)
+                    logo_cargado = True
+                except Exception as e:
+                    print(f"Error logo PDF: {e}")
 
-            # --- B. ENCABEZADO (EMPRESA - DEPTO) ---
-            # Título Grande (Empresa)
-            ax.text(4.25, 10.6, empresa_titulo, fontsize=22, weight='bold', color=AZUL_OSCURO, ha='center')
-            # Subtítulo (Departamento)
-            ax.text(4.25, 10.30, depto_subtitulo, fontsize=11, weight='bold', color='gray', ha='center')
+            # Si no hay logo, mostrar ícono de texto como fallback
+            if not logo_cargado:
+                ax.text(
+                    X_INI + 0.50, 10.32,
+                    "⬜",
+                    fontsize=28, ha='center', va='center',
+                    color='#CCCCCC'
+                )
 
-            # Folio y Fecha
-            ax.text(8.0, 10.0, f"FOLIO: {folio}", color=ROJO_FOLIO, weight='bold', ha='right', fontsize=11)
-            ax.text(8.0, 9.8, f"FECHA: {datetime.now().strftime('%d-%b-%Y').upper()}", color=AZUL_OSCURO, weight='bold', ha='right', fontsize=10)
+            # 3. Título principal — centrado en el área derecha al logo
+            # El logo ocupa hasta aprox X_INI + 1.05
+            # El título se centra en el espacio restante
+            X_TITULO_CENTER = (X_INI + 1.10 + X_FIN) / 2   # ≈ 4.75
 
-            # --- C. TÍTULO DEL DOCUMENTO ---
-            rect_titulo = Rectangle((2.5, 9.3), 3.5, 0.4, facecolor=AZUL_OSCURO)
-            ax.add_patch(rect_titulo)
-            ax.text(4.25, 9.45, "VALE DE SALIDA", color='white', weight='bold', fontsize=12, ha='center')
+            ax.text(
+                X_TITULO_CENTER, 10.44,
+                empresa_titulo,
+                fontsize=fs_titulo, fontweight='bold',
+                color=AZUL, ha='center', va='center'
+            )
 
-            # --- D. DESTINO ---
-            y_dest = 8.8
-            ax.text(0.5, y_dest, "DESTINO / EDIFICIO:", weight='bold', color=AZUL_OSCURO, fontsize=11)
-            ax.text(2.8, y_dest, area, fontsize=11)
-            ax.plot([2.8, 8.0], [y_dest - 0.05, y_dest - 0.05], color='black', linewidth=1)
+            # 4. Subtítulo — mismo centro que el título
+            ax.text(
+                X_TITULO_CENTER, 10.16,
+                depto_subtitulo.upper(),
+                fontsize=9, fontweight='bold',
+                color='#666666', ha='center', va='center'
+            )
 
-            # --- E. TABLA PRINCIPAL ---
-            y_header = 8.0
-            h_row = 0.4 
-            x_start = 0.5; x_col1 = 1.5; x_col2 = 2.5; x_end = 8.0
-            
-            rect_head = Rectangle((x_start, y_header), x_end - x_start, h_row, facecolor=AZUL_OSCURO)
-            ax.add_patch(rect_head)
-            
-            ax.text((x_start + x_col1)/2, y_header + 0.1, "CANT.", color='white', weight='bold', ha='center')
-            ax.text((x_col1 + x_col2)/2, y_header + 0.1, "UNIDAD", color='white', weight='bold', ha='center')
-            ax.text(x_col2 + 0.2, y_header + 0.1, "DESCRIPCIÓN DEL MATERIAL", color='white', weight='bold', ha='left')
+            # 5. Línea divisoria bajo el bloque de títulos
+            ax.plot(
+                [X_INI, X_FIN], [9.88, 9.88],
+                color=AZUL, linewidth=1.4
+            )
 
-            num_filas = 8
-            y_curr = y_header
-            for i in range(num_filas + 1): 
-                color_linea = AZUL_OSCURO if i == 0 else 'gray'
-                grosor = 1 if i == 0 or i == num_filas else 0.5
-                ax.plot([x_start, x_end], [y_curr, y_curr], color=color_linea, linewidth=grosor)
-                y_curr -= h_row
-            
-            y_bottom = y_header - (h_row * num_filas)
-            ax.plot([x_start, x_start], [y_bottom, y_header + h_row], color=AZUL_OSCURO, linewidth=1)
-            ax.plot([x_end, x_end], [y_bottom, y_header + h_row], color=AZUL_OSCURO, linewidth=1)
-            ax.plot([x_col1, x_col1], [y_bottom, y_header], color='gray', linewidth=0.5)
-            ax.plot([x_col2, x_col2], [y_bottom, y_header], color='gray', linewidth=0.5)
+            # 6. Folio (izquierda)
+            ax.text(
+                X_INI, 9.66,
+                "FOLIO: ",
+                fontsize=10, fontweight='bold',
+                color=ROJO, va='center'
+            )
+            ax.text(
+                X_INI + 0.72, 9.66,
+                folio,
+                fontsize=10, fontweight='bold',
+                color=ROJO, va='center'
+            )
 
-            y_data = y_header - 0.25
-            ax.text((x_start + x_col1)/2, y_data, str(cantidad), ha='center', fontsize=11)
-            ax.text((x_col1 + x_col2)/2, y_data, "PZA", ha='center', fontsize=11) 
-            desc_ajustada = textwrap.fill(material, 65) 
-            ax.text(x_col2 + 0.2, y_data, desc_ajustada, ha='left', va='center', fontsize=10)
+            # 7. Fecha (derecha)
+            ax.text(
+                X_FIN, 9.66,
+                f"FECHA:  {datetime.now().strftime('%d-%b-%Y').upper()}",
+                fontsize=9.5, fontweight='bold',
+                color=AZUL, ha='right', va='center'
+            )
 
-            # --- F. FIRMAS ---
-            y_firmas = 1.5
-            
-            def dibujar_firma(x_center, titulo, nombre):
-                ax.plot([x_center - 1.0, x_center + 1.0], [y_firmas, y_firmas], color='black', linewidth=1)
-                ax.text(x_center, y_firmas - 0.2, titulo, ha='center', weight='bold', fontsize=10)
-                nombre_wrap = "\n".join(textwrap.wrap(nombre, width=25)) 
-                ax.text(x_center, y_firmas - 0.35, nombre_wrap, ha='center', fontsize=7, va='top', color='#1F4E79')
+            # 8. Caja "VALE DE SALIDA" centrada en la hoja
+            CAJA_W = 3.20
+            CAJA_H = 0.34
+            CAJA_X = X_MID - CAJA_W / 2
+            CAJA_Y = 9.22
+            ax.add_patch(Rectangle(
+                (CAJA_X, CAJA_Y), CAJA_W, CAJA_H,
+                facecolor=AZUL, zorder=2
+            ))
+            ax.text(
+                X_MID, CAJA_Y + CAJA_H / 2,
+                "V A L E   D E   S A L I D A",
+                color='white', fontweight='bold', fontsize=11,
+                ha='center', va='center', zorder=3
+            )
 
-            dibujar_firma(1.8, "ENTREGÓ", jefe)
+            # 9. Línea divisoria
+            ax.plot(
+                [X_INI, X_FIN], [9.08, 9.08],
+                color=AZUL, linewidth=1.0
+            )
+
+            # 10. Área solicitante
+            ax.text(
+                X_INI, 8.86,
+                "ÁREA SOLICITANTE:",
+                fontweight='bold', color=AZUL,
+                fontsize=9.5, va='center'
+            )
+            ax.text(
+                X_INI + 1.92, 8.86,
+                area.upper(),
+                fontsize=9.5, va='center', color='#222222'
+            )
+
+            # 11. Línea gris bajo área solicitante
+            ax.plot(
+                [X_INI, X_FIN], [8.68, 8.68],
+                color='#AAAAAA', linewidth=0.6
+            )
+
+            # ══════════════════════════════════════════════════════════
+            # ENCABEZADO DE TABLA (fondo azul)
+            # ══════════════════════════════════════════════════════════
+            H_HEADER    = 0.40
+            Y_TABLA_TOP = 8.52
+            Y_HDR_BOT   = Y_TABLA_TOP - H_HEADER   # = 8.12
+
+            ax.add_patch(Rectangle(
+                (X_INI, Y_HDR_BOT), X_FIN - X_INI, H_HEADER,
+                facecolor=AZUL, zorder=2
+            ))
+
+            y_hdr_c = Y_HDR_BOT + H_HEADER / 2
+
+            ax.text(
+                (X_INI + X_COL1) / 2, y_hdr_c,
+                "CANT.",
+                color='white', fontweight='bold',
+                ha='center', va='center', fontsize=9, zorder=3
+            )
+            ax.text(
+                (X_COL1 + X_COL2) / 2, y_hdr_c,
+                "UNIDAD",
+                color='white', fontweight='bold',
+                ha='center', va='center', fontsize=9, zorder=3
+            )
+            ax.text(
+                X_COL2 + 0.15, y_hdr_c,
+                "DESCRIPCIÓN DEL MATERIAL",
+                color='white', fontweight='bold',
+                ha='left', va='center', fontsize=9, zorder=3
+            )
+
+            # ══════════════════════════════════════════════════════════
+            # CÁLCULO DE RENGLONES
+            #   • Mínimo 4 renglones siempre.
+            #   • Más materiales → exactamente ese número de renglones.
+            #   • Altura fija 0.48 in por renglón.
+            # ══════════════════════════════════════════════════════════
+            H_ROW      = 0.48
+            num_filas  = max(len(carrito), 4)
+            Y_TOP_ROWS = Y_HDR_BOT
+            Y_BOT_ROWS = Y_TOP_ROWS - H_ROW * num_filas
+
+            # ── Filas alternas con fondo suave ────────────────────────
+            for i in range(num_filas):
+                if i % 2 == 1:
+                    y_rect = Y_TOP_ROWS - H_ROW * (i + 1)
+                    ax.add_patch(Rectangle(
+                        (X_INI, y_rect), X_FIN - X_INI, H_ROW,
+                        facecolor='#F4F7FB', zorder=0
+                    ))
+
+            # ── Líneas horizontales ───────────────────────────────────
+            for i in range(num_filas + 1):
+                y_lin    = Y_TOP_ROWS - H_ROW * i
+                es_borde = (i == 0 or i == num_filas)
+                ax.plot(
+                    [X_INI, X_FIN], [y_lin, y_lin],
+                    color     = AZUL    if es_borde else '#CCCCCC',
+                    linewidth = 0.85    if es_borde else 0.30
+                )
+
+            # ── Líneas verticales — bordes exteriores ─────────────────
+            ax.plot([X_INI, X_INI], [Y_BOT_ROWS, Y_TOP_ROWS],
+                    color=AZUL, linewidth=0.85)
+            ax.plot([X_FIN, X_FIN], [Y_BOT_ROWS, Y_TOP_ROWS],
+                    color=AZUL, linewidth=0.85)
+
+            # ── Líneas verticales — divisores interiores ──────────────
+            ax.plot([X_COL1, X_COL1], [Y_BOT_ROWS, Y_TOP_ROWS],
+                    color='#CCCCCC', linewidth=0.40)
+            ax.plot([X_COL2, X_COL2], [Y_BOT_ROWS, Y_TOP_ROWS],
+                    color='#CCCCCC', linewidth=0.40)
+
+            # ══════════════════════════════════════════════════════════
+            # DATOS DEL CARRITO
+            # ══════════════════════════════════════════════════════════
+            for i, item in enumerate(carrito):
+                y_centro = Y_TOP_ROWS - H_ROW * i - H_ROW / 2
+
+                ax.text(
+                    (X_INI + X_COL1) / 2, y_centro,
+                    str(item['cantidad']),
+                    ha='center', va='center',
+                    fontsize=9.5, fontweight='bold'
+                )
+                ax.text(
+                    (X_COL1 + X_COL2) / 2, y_centro,
+                    "PZA",
+                    ha='center', va='center', fontsize=9
+                )
+                ax.text(
+                    X_COL2 + 0.15, y_centro,
+                    textwrap.fill(item['material'], 56),
+                    ha='left', va='center',
+                    fontsize=8.5, linespacing=1.30
+                )
+
+            # ══════════════════════════════════════════════════════════
+            # FIRMAS — FIJAS AL PIE
+            # ══════════════════════════════════════════════════════════
+            Y_FIRMAS    = 0.90
+            FIRMA_ANCHO = 1.10
+
+            def dibujar_firma(xc, titulo, nombre):
+                ax.plot(
+                    [xc - FIRMA_ANCHO, xc + FIRMA_ANCHO],
+                    [Y_FIRMAS, Y_FIRMAS],
+                    color='#333333', linewidth=0.9
+                )
+                ax.text(
+                    xc, Y_FIRMAS - 0.14,
+                    titulo,
+                    ha='center', va='top',
+                    fontweight='bold', fontsize=8.5, color=AZUL
+                )
+                ax.text(
+                    xc, Y_FIRMAS - 0.30,
+                    "\n".join(textwrap.wrap(nombre, 24)),
+                    ha='center', va='top',
+                    fontsize=8, color='#333333'
+                )
+
+            dibujar_firma(1.95, "ENTREGÓ",            jefe)
             dibujar_firma(4.25, "RECIBIÓ / SOLICITÓ", resp)
-            dibujar_firma(6.7, "CONSTAME:", firma_constame) 
+            dibujar_firma(6.55, "CONSTAME:",           firma_constame)
 
-            # 4. GUARDAR
-            fig.savefig(ruta_pdf, dpi=300, bbox_inches='tight')
+            # Barra azul inferior — debajo de los nombres de firmas
+            ax.add_patch(Rectangle(
+                (X_INI, 0.14), X_FIN - X_INI, 0.07,
+                facecolor=AZUL, zorder=2
+            ))
+
+            # ── Guardar PDF SIN bbox_inches='tight' ───────────────────
+            # (tight recorta la figura y desplaza coordenadas)
+            fig.savefig(ruta_pdf, dpi=300)
             plt.close(fig)
-            
+
             intentos = 0
             while not os.path.exists(ruta_pdf) and intentos < 20:
-                time.sleep(0.1); intentos += 1
-            
-            if os.path.exists(ruta_pdf): os.startfile(ruta_pdf)
-            else: messagebox.showerror("Error", "No se pudo generar el archivo PDF.")
+                time.sleep(0.1)
+                intentos += 1
+
+            if os.path.exists(ruta_pdf):
+                os.startfile(ruta_pdf)
 
         except Exception as e:
-            messagebox.showerror("Error", f"{e}")
+            messagebox.showerror("Error PDF", f"{e}")
             plt.close()
-
     
     def abrir_ajustes_visuales(self):
         # 1. Verificar Permisos
@@ -1970,97 +3262,188 @@ class SistemaInventario:
     def abrir_editor_temas(self):
         top = tk.Toplevel(self.root)
         top.title("🎨 Personalización de Temas")
-        
-        # Usamos tu función de centrado
-        self.centrar_ventana_emergente(top, 750, 700)
-        
+        self.centrar_ventana_emergente(top, 780, 720)
+
         tabs = ttk.Notebook(top)
         tabs.pack(fill=BOTH, expand=True, padx=10, pady=10)
-        
-        # --- PESTAÑA 1: TEMAS PREDEFINIDOS ---
+
+    # ─────────────────────────────────────────────
+    # PESTAÑA 1: TEMAS PREDEFINIDOS
+    # ─────────────────────────────────────────────
         tab_predef = ttk.Frame(tabs, padding=20)
         tabs.add(tab_predef, text="🎨 Temas Predefinidos")
-        
-        ttk.Label(tab_predef, text="Selecciona un tema:", font=("Segoe UI", 12, "bold")).pack(anchor=W, pady=(0, 15))
-        
-        # Canvas con scroll para los temas
-        canvas_temas = tk.Canvas(tab_predef, height=400)
-        scroll_temas = ttk.Scrollbar(tab_predef, orient=VERTICAL, command=canvas_temas.yview)
+
+        ttk.Label(tab_predef, text="Selecciona un tema y haz clic en Aplicar:",
+                font=("Segoe UI", 11, "bold")).pack(anchor=W, pady=(0, 15))
+
+    # Canvas con scroll
+        canvas_temas = tk.Canvas(tab_predef, highlightthickness=0)
+        scroll_temas = ttk.Scrollbar(tab_predef, orient=VERTICAL,
+                                    command=canvas_temas.yview)
         frame_temas = ttk.Frame(canvas_temas)
-        
+
+        frame_temas.bind("<Configure>",
+                        lambda e: canvas_temas.configure(
+                             scrollregion=canvas_temas.bbox("all")))
+        canvas_temas.create_window((0, 0), window=frame_temas, anchor=NW)
         canvas_temas.configure(yscrollcommand=scroll_temas.set)
         canvas_temas.pack(side=LEFT, fill=BOTH, expand=True)
         scroll_temas.pack(side=RIGHT, fill=Y)
-        canvas_temas.create_window((0, 0), window=frame_temas, anchor=NW)
-        
+
+        # Scroll con rueda
+        canvas_temas.bind("<Enter>",
+            lambda e: canvas_temas.bind_all("<MouseWheel>",
+                lambda ev: canvas_temas.yview_scroll(int(-1*(ev.delta/120)), "units")))
+        canvas_temas.bind("<Leave>",
+            lambda e: canvas_temas.unbind_all("<MouseWheel>"))
+
         def seleccionar_tema_predef(nombre_tema):
             tema = GestorTemas.TEMAS_PREDEFINIDOS[nombre_tema]
             GestorTemas.guardar_tema(self.db, tema)
             top.destroy()
-            # IMPORTANTE: Llama a la función de reinicio que creamos antes
             self.solicitar_reinicio()
-        
-        # Generar lista de temas
+
+    # Generar tarjetas de temas
         for nombre, tema_data in GestorTemas.TEMAS_PREDEFINIDOS.items():
-            fr_tema = ttk.Frame(frame_temas, padding=10, relief="solid", borderwidth=1)
-            fr_tema.pack(fill=X, pady=5, padx=5)
-            
-            # Muestra de colores
-            fr_colores = ttk.Frame(fr_tema)
-            fr_colores.pack(side=LEFT, padx=(0, 15))
-            for color in [tema_data["color_primario"], tema_data["color_secundario"], tema_data["color_acento"]]:
-                lbl_color = tk.Label(fr_colores, bg=color, width=3, height=1, relief="solid", borderwidth=1)
-                lbl_color.pack(side=LEFT, padx=2)
-            
-            ttk.Label(fr_tema, text=nombre, font=("Segoe UI", 11, "bold")).pack(side=LEFT)
-            ttk.Button(fr_tema, text="✓ Aplicar", bootstyle="success",
-                    command=lambda n=nombre: seleccionar_tema_predef(n)).pack(side=RIGHT)
-        
+            fr_tema = tk.Frame(frame_temas, relief="solid", borderwidth=1,
+                            bg=tema_data["color_fondo"])
+            fr_tema.pack(fill=X, pady=4, padx=5, ipady=8)
+
+            # ✅ PREVIEW DE COLORES USANDO CANVAS (siempre visible)
+            fr_preview = tk.Frame(fr_tema, bg=tema_data["color_fondo"])
+            fr_preview.pack(side=LEFT, padx=12)
+
+            canvas_prev = tk.Canvas(fr_preview, width=90, height=24,
+                                    highlightthickness=0,
+                                    bg=tema_data["color_fondo"])
+            canvas_prev.pack()
+
+        # Dibujar 3 rectángulos de colores
+            colores_prev = [
+                tema_data["color_primario"],
+                tema_data["color_secundario"],
+                tema_data["color_acento"]
+            ]
+            for idx_c, color in enumerate(colores_prev):
+                x0 = idx_c * 32
+                canvas_prev.create_rectangle(x0+2, 2, x0+28, 22,
+                                          fill=color, outline="#888888", width=1)
+
+        # Nombre del tema
+            tk.Label(fr_tema,
+                    text=nombre,
+                    font=("Segoe UI", 11, "bold"),
+                    bg=tema_data["color_fondo"],
+                    fg=tema_data["color_texto"]).pack(side=LEFT, padx=5)
+
+        # Botón Aplicar
+            tk.Button(fr_tema,
+                    text="✓ Aplicar",
+                    bg=tema_data["color_primario"],
+                    fg=texto_sobre_color(tema_data["color_primario"]),
+                    relief="flat", padx=12, pady=4,
+                    font=("Segoe UI", 9, "bold"),
+                    cursor="hand2",
+                    command=lambda n=nombre: seleccionar_tema_predef(n)
+                    ).pack(side=RIGHT, padx=12)
+
         frame_temas.update_idletasks()
         canvas_temas.configure(scrollregion=canvas_temas.bbox("all"))
-        
-        # --- PESTAÑA 2: PERSONALIZADO ---
+
+    # ─────────────────────────────────────────────
+    # PESTAÑA 2: TEMA PERSONALIZADO
+    # ─────────────────────────────────────────────
         tab_custom = ttk.Frame(tabs, padding=20)
         tabs.add(tab_custom, text="🖌️ Personalizado")
-        
+
+        ttk.Label(tab_custom, text="Configura tus propios colores:",
+                 font=("Segoe UI", 11, "bold")).pack(anchor=W, pady=(0, 15))
+
         colores_personalizados = {
-            "color_primario": tk.StringVar(value=self.tema_actual["color_primario"]),
+            "color_primario":   tk.StringVar(value=self.tema_actual["color_primario"]),
             "color_secundario": tk.StringVar(value=self.tema_actual["color_secundario"]),
-            "color_acento": tk.StringVar(value=self.tema_actual["color_acento"]),
-            "color_fondo": tk.StringVar(value=self.tema_actual["color_fondo"]),
-            "color_texto": tk.StringVar(value=self.tema_actual["color_texto"])
+            "color_acento":     tk.StringVar(value=self.tema_actual["color_acento"]),
+            "color_fondo":      tk.StringVar(value=self.tema_actual["color_fondo"]),
+            "color_texto":      tk.StringVar(value=self.tema_actual["color_texto"])
         }
-        
-        def elegir_color(clave, var):
-            color = colorchooser.askcolor(initialcolor=var.get(), title=f"Seleccionar {clave}")
-            if color[1]: var.set(color[1])
-        
+
         opciones_color = [
-            ("Color Primario", "color_primario"), ("Color Secundario", "color_secundario"),
-            ("Color Acento", "color_acento"), ("Color Fondo", "color_fondo"), ("Color Texto", "color_texto")
+            ("🔵 Color Primario (Botones/Títulos)",  "color_primario"),
+            ("🔷 Color Secundario (Hover/Detalles)", "color_secundario"),
+            ("✨ Color Acento (Resaltado)",           "color_acento"),
+            ("🖼️ Color Fondo (Ventanas)",             "color_fondo"),
+            ("🔤 Color Texto (Letras)",               "color_texto"),
         ]
-        
+
+    # Guardar referencias a los canvas de preview
+        canvas_refs = {}
+
         for texto, clave in opciones_color:
-            fr_color = ttk.Frame(tab_custom, padding=5); fr_color.pack(fill=X, pady=8)
-            ttk.Label(fr_color, text=texto, width=20).pack(side=LEFT)
-            ttk.Button(fr_color, text="🎨", bootstyle="info", command=lambda c=clave, v=colores_personalizados[clave]: elegir_color(c, v)).pack(side=LEFT)
-        
-        ttk.Separator(tab_custom).pack(fill=X, pady=20)
-        ttk.Label(tab_custom, text="Tema Base:", font=("Segoe UI", 10, "bold")).pack(anchor=W)
-        
-        # Lista de temas bootstrap disponibles
-        temas_bootstrap = ["flatly", "cosmo", "litera", "minty", "pulse", "sandstone", "united", "yeti", "darkly", "superhero", "solar", "cyborg"]
+            fr_fila = ttk.Frame(tab_custom)
+            fr_fila.pack(fill=X, pady=6)
+
+            ttk.Label(fr_fila, text=texto, width=38).pack(side=LEFT)
+
+        # Canvas de preview del color actual
+            cv = tk.Canvas(fr_fila, width=36, height=24,
+                            highlightthickness=1, highlightbackground="#AAAAAA")
+            cv.pack(side=LEFT, padx=5)
+            rect_id = cv.create_rectangle(2, 2, 34, 22,
+                                        fill=colores_personalizados[clave].get(),
+                                        outline="")
+            canvas_refs[clave] = (cv, rect_id)
+
+        # Mostrar hex actual
+            lbl_hex = ttk.Label(fr_fila,
+                                text=colores_personalizados[clave].get(),
+                                font=("Consolas", 9), foreground="#555555", width=10)
+            lbl_hex.pack(side=LEFT, padx=4)
+
+            def elegir_color(c=clave, v=colores_personalizados[clave],
+                            lbl=lbl_hex):
+                color = colorchooser.askcolor(
+                    initialcolor=v.get(),
+                    title=f"Seleccionar {c}",
+                    parent=top
+                )
+                if color[1]:
+                    v.set(color[1])
+                # Actualizar preview
+                    cv_ref, rect_ref = canvas_refs[c]
+                    cv_ref.itemconfig(rect_ref, fill=color[1])
+                    lbl.config(text=color[1])
+                top.lift()
+                top.focus_force()
+
+            ttk.Button(fr_fila, text="🎨 Elegir",
+                    bootstyle="info-outline",
+                    command=elegir_color).pack(side=LEFT)
+
+        ttk.Separator(tab_custom).pack(fill=X, pady=15)
+
+    # Tema Bootstrap base
+        fr_boot = ttk.Frame(tab_custom)
+        fr_boot.pack(fill=X, pady=5)
+        ttk.Label(fr_boot, text="🎨 Tema Base (Bootstrap):",
+                font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 10))
+
+        temas_bootstrap = ["flatly","cosmo","litera","minty","pulse","sandstone",
+                            "united","yeti","darkly","superhero","solar","cyborg","journal"]
         tema_bootstrap_var = tk.StringVar(value=self.tema_actual["tema_bootstrap"])
-        ttk.Combobox(tab_custom, textvariable=tema_bootstrap_var, values=temas_bootstrap, state="readonly").pack(fill=X)
-        
+        ttk.Combobox(fr_boot, textvariable=tema_bootstrap_var,
+                    values=temas_bootstrap, state="readonly",
+                    width=15).pack(side=LEFT)
+
         def guardar_tema_personalizado():
             tema_nuevo = {k: v.get() for k, v in colores_personalizados.items()}
             tema_nuevo["tema_bootstrap"] = tema_bootstrap_var.get()
             GestorTemas.guardar_tema(self.db, tema_nuevo)
             top.destroy()
             self.solicitar_reinicio()
-        
-        ttk.Button(tab_custom, text="💾 GUARDAR Y REINICIAR", bootstyle="success", command=guardar_tema_personalizado).pack(fill=X, pady=20)
+
+        ttk.Button(tab_custom, text="💾  GUARDAR Y REINICIAR",
+                bootstyle="success",
+                command=guardar_tema_personalizado).pack(fill=X, pady=20, ipady=6)
 
     def calcular_datos_kardex(self):
         try:
@@ -2357,271 +3740,466 @@ class SistemaInventario:
         
     # --- EN LA CLASE SistemaInventario (NUEVA FUNCIÓN) ---
     def abrir_gestion_usuarios(self):
-        # 1. Seguridad: Solo ADMIN puede entrar aquí
         if self.usuario.get('rol') != 'ADMIN':
             messagebox.showerror("Acceso Denegado", "Se requieren permisos de administrador.")
             return
 
         top = tk.Toplevel(self.root)
         top.title("Gestión de Usuarios y Permisos")
-        top.state('zoomed') # Pantalla completa
+        top.state('zoomed')
         top.minsize(900, 600)
-        
-        # --- VARIABLES DE CONTROL ---
-        var_id = tk.StringVar()
-        var_user = tk.StringVar()
-        var_pass = tk.StringVar()
+        # ✅ FIX 1: Evita que se minimice al mostrar mensajes
+        top.grab_set()
+        top.focus_force()
+
+    # --- VARIABLES DE CONTROL ---
+        var_id     = tk.StringVar()
+        var_user   = tk.StringVar()
+        var_pass   = tk.StringVar()
         var_nombre = tk.StringVar()
-        var_email = tk.StringVar() # <--- VARIABLE PARA EL EMAIL
-        var_rol = tk.StringVar(value="OPERADOR")
+        var_email  = tk.StringVar()
+        var_rol    = tk.StringVar(value="OPERADOR")
         var_foto_path = tk.StringVar()
-        
-        # Variables de Permisos
-        var_p_crear = tk.IntVar(); var_p_ent = tk.IntVar(); var_p_sal = tk.IntVar()
-        var_p_edit = tk.IntVar(); var_p_del = tk.IntVar()
-        var_p_cat = tk.IntVar(); var_p_hist = tk.IntVar(); var_p_conf = tk.IntVar()
-        
-        self.usuario_seleccionado_id = None 
-        self.password_actual_hash = "" 
 
-        try:
-            import tkinter.ttk as original_ttk
-            # Frame principal con padding
-            main_container = ttk.Frame(top, padding=10)
-            main_container.pack(fill=BOTH, expand=True)
+        var_p_crear = tk.IntVar(); var_p_ent  = tk.IntVar(); var_p_sal  = tk.IntVar()
+        var_p_edit  = tk.IntVar(); var_p_del  = tk.IntVar()
+        var_p_cat   = tk.IntVar(); var_p_hist = tk.IntVar(); var_p_conf = tk.IntVar()
 
-            paned = original_ttk.PanedWindow(main_container, orient=HORIZONTAL)
-            paned.pack(fill=BOTH, expand=True)
+        self.usuario_seleccionado_id = None
+        self.password_actual_hash    = ""
 
-            # ==========================================
-            # PANEL IZQUIERDO: LISTA DE USUARIOS
-            # ==========================================
-            fr_lista = ttk.Labelframe(paned, text=" Usuarios Registrados ", padding=10, bootstyle="info")
-            paned.add(fr_lista, weight=1) 
+        import tkinter.ttk as original_ttk
 
-            cols_u = ("ID", "USUARIO", "ROL", "NOMBRE")
-            tree_users = ttk.Treeview(fr_lista, columns=cols_u, show="headings", selectmode="browse")
-            
-            tree_users.heading("ID", text="ID"); tree_users.column("ID", width=40, anchor=CENTER)
-            tree_users.heading("USUARIO", text="Usuario"); tree_users.column("USUARIO", width=100)
-            tree_users.heading("ROL", text="Rol"); tree_users.column("ROL", width=80, anchor=CENTER)
-            tree_users.heading("NOMBRE", text="Nombre"); tree_users.column("NOMBRE", width=150)
-            
-            sc_u = ttk.Scrollbar(fr_lista, orient=VERTICAL, command=tree_users.yview)
-            tree_users.configure(yscrollcommand=sc_u.set)
-            
-            tree_users.pack(side=LEFT, fill=BOTH, expand=True)
-            sc_u.pack(side=RIGHT, fill=Y)
+        main_container = ttk.Frame(top, padding=10)
+        main_container.pack(fill=BOTH, expand=True)
 
-            ttk.Label(fr_lista, text="💡 Selecciona un usuario para editarlo", 
-                      font=("Segoe UI", 8), bootstyle="secondary").pack(side=BOTTOM, fill=X)
+        paned = original_ttk.PanedWindow(main_container, orient=HORIZONTAL)
+        paned.pack(fill=BOTH, expand=True)
 
-            # ==========================================
-            # PANEL DERECHO: FORMULARIO DE EDICIÓN
-            # ==========================================
-            fr_form = ttk.Labelframe(paned, text=" Ficha de Usuario y Permisos ", padding=15, bootstyle="primary")
-            paned.add(fr_form, weight=3) 
+    # ==========================================
+    # PANEL IZQUIERDO: LISTA DE USUARIOS
+    # ==========================================
+        fr_lista = ttk.Labelframe(paned, text=" Usuarios Registrados ", padding=10, bootstyle="info")
+        paned.add(fr_lista, weight=1)
 
-            # Canvas para scroll si la pantalla es chica
-            canvas_form = tk.Canvas(fr_form, highlightthickness=0)
-            scrollbar_form = ttk.Scrollbar(fr_form, orient=VERTICAL, command=canvas_form.yview)
-            scrollable_frame = ttk.Frame(canvas_form)
+        cols_u = ("ID", "USUARIO", "ROL", "NOMBRE")
+        tree_users = ttk.Treeview(fr_lista, columns=cols_u, show="headings", selectmode="browse")
 
-            scrollable_frame.bind(
-                "<Configure>",
-                lambda e: canvas_form.configure(scrollregion=canvas_form.bbox("all"))
+        tree_users.heading("ID",      text="ID");      tree_users.column("ID",      width=40,  anchor=CENTER)
+        tree_users.heading("USUARIO", text="Usuario"); tree_users.column("USUARIO", width=100)
+        tree_users.heading("ROL",     text="Rol");     tree_users.column("ROL",     width=80,  anchor=CENTER)
+        tree_users.heading("NOMBRE",  text="Nombre");  tree_users.column("NOMBRE",  width=150)
+
+        sc_u = ttk.Scrollbar(fr_lista, orient=VERTICAL, command=tree_users.yview)
+        tree_users.configure(yscrollcommand=sc_u.set)
+        tree_users.pack(side=LEFT, fill=BOTH, expand=True)
+        sc_u.pack(side=RIGHT, fill=Y)
+
+        ttk.Label(fr_lista, text="💡 Selecciona un usuario para editarlo",
+                font=("Segoe UI", 8), bootstyle="secondary").pack(side=BOTTOM, fill=X)
+
+    # ==========================================
+    # PANEL DERECHO: FORMULARIO CON SCROLL
+    # ==========================================
+        fr_form = ttk.Labelframe(paned, text=" Ficha de Usuario y Permisos ",
+                                padding=15, bootstyle="primary")
+        paned.add(fr_form, weight=3)
+
+    # ✅ FIX 2: Scroll correcto con rueda del ratón
+        canvas_form   = tk.Canvas(fr_form, highlightthickness=0)
+        scrollbar_form = ttk.Scrollbar(fr_form, orient=VERTICAL, command=canvas_form.yview)
+        scrollable_frame = ttk.Frame(canvas_form)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas_form.configure(scrollregion=canvas_form.bbox("all"))
+        )
+        canvas_form.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas_form.configure(yscrollcommand=scrollbar_form.set)
+
+    # Vincular rueda del ratón al canvas
+        def _on_mousewheel(event):
+            canvas_form.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        def _bind_scroll(event):
+            canvas_form.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _unbind_scroll(event):
+            canvas_form.unbind_all("<MouseWheel>")
+
+        canvas_form.bind("<Enter>", _bind_scroll)
+        canvas_form.bind("<Leave>", _unbind_scroll)
+
+        scrollbar_form.pack(side=RIGHT, fill=Y)
+        canvas_form.pack(side=LEFT, fill=BOTH, expand=True)
+
+    # ✅ FIX 3: Tab order — lista ordenada de widgets para Tab
+        tab_order = []
+
+    # --- SECCIÓN FOTO ---
+        fr_foto = ttk.Frame(scrollable_frame)
+        fr_foto.pack(fill=X, pady=(0, 10))
+
+        self.lbl_preview = ttk.Label(fr_foto, text="👤", font=("Segoe UI Emoji", 40), anchor=CENTER)
+        self.lbl_preview.pack(side=LEFT, padx=10)
+
+        def seleccionar_foto():
+            ruta = filedialog.askopenfilename(
+                parent=top,
+                filetypes=[("Imágenes", "*.png;*.jpg;*.jpeg")]
             )
+            if ruta:
+                var_foto_path.set(ruta)
+                try:
+                    img = Image.open(ruta).resize((70, 70), Image.LANCZOS)
+                    self.tk_foto_temp = ImageTk.PhotoImage(img, master=top)
+                    self.lbl_preview.configure(image=self.tk_foto_temp, text="")
+                except:
+                    pass
+            top.lift()
+            top.focus_force()
 
-            canvas_form.create_window((0, 0), window=scrollable_frame, anchor="nw")
-            canvas_form.configure(yscrollcommand=scrollbar_form.set)
+        ttk.Button(fr_foto, text="📂 Cambiar Foto", bootstyle="secondary-outline",
+                command=seleccionar_foto).pack(side=LEFT, padx=10)
 
-            canvas_form.pack(side=LEFT, fill=BOTH, expand=True)
-            scrollbar_form.pack(side=RIGHT, fill=Y)
+    # --- CAMPOS DE TEXTO ---
+        fr_campos = ttk.Frame(scrollable_frame)
+        fr_campos.pack(fill=X)
+        fr_campos.columnconfigure(1, weight=1)
 
-            # --- SECCIÓN FOTO ---
-            fr_foto = ttk.Frame(scrollable_frame)
-            fr_foto.pack(fill=X, pady=(0, 10))
-            self.lbl_preview = ttk.Label(fr_foto, text="👤", font=("Segoe UI Emoji", 40), anchor=CENTER)
-            self.lbl_preview.pack(side=LEFT, padx=10)
-            
-            def seleccionar_foto():
-                ruta = filedialog.askopenfilename(parent=top, filetypes=[("Imágenes", "*.png;*.jpg;*.jpeg")])
-                if ruta:
-                    var_foto_path.set(ruta)
+    # Fila 0: Usuario
+        ttk.Label(fr_campos, text="Usuario (Login):").grid(row=0, column=0, sticky=W, pady=5)
+        e_user = ttk.Entry(fr_campos, textvariable=var_user, font=("Segoe UI", 10, "bold"))
+        e_user.grid(row=0, column=1, sticky=EW, pady=5, padx=5)
+        tab_order.append(e_user)
+
+    # Fila 1: Contraseña
+        ttk.Label(fr_campos, text="Contraseña:").grid(row=1, column=0, sticky=W, pady=5)
+        fr_pass = ttk.Frame(fr_campos)
+        fr_pass.grid(row=1, column=1, sticky=EW, pady=5, padx=5)
+
+        e_pass = ttk.Entry(fr_pass, textvariable=var_pass, show="*")
+        e_pass.pack(side=LEFT, fill=X, expand=True)
+        tab_order.append(e_pass)
+
+        ver_pass = tk.BooleanVar()
+        ttk.Checkbutton(
+            fr_pass, text="👁️", variable=ver_pass, bootstyle="toolbutton",
+            command=lambda: e_pass.config(show="" if ver_pass.get() else "*")
+        ).pack(side=LEFT)
+
+    # Hint contraseña
+        ttk.Label(
+            fr_campos,
+            text="📋 Mínimo 8 caracteres · Una MAYÚSCULA · una minúscula · un número · solo alfanumérico",
+            font=("Segoe UI", 7, "italic"), foreground="#888888"
+        ).grid(row=2, column=1, sticky=W, padx=5)
+
+    # Fila 3: Nombre
+        ttk.Label(fr_campos, text="Nombre Completo:").grid(row=3, column=0, sticky=W, pady=5)
+        e_nombre = ttk.Entry(fr_campos, textvariable=var_nombre)
+        e_nombre.grid(row=3, column=1, sticky=EW, pady=5, padx=5)
+        tab_order.append(e_nombre)
+
+    # Fila 4: Email
+        ttk.Label(fr_campos, text="Correo Electrónico:").grid(row=4, column=0, sticky=W, pady=5)
+        e_email = ttk.Entry(fr_campos, textvariable=var_email)
+        e_email.grid(row=4, column=1, sticky=EW, pady=5, padx=5)
+        tab_order.append(e_email)
+
+    # Fila 5: Rol
+        ttk.Label(fr_campos, text="Rol (Etiqueta):").grid(row=5, column=0, sticky=W, pady=5)
+        cbox_rol = ttk.Combobox(fr_campos, textvariable=var_rol,
+                             values=["OPERADOR", "ADMIN", "SOLO LECTURA"], state="readonly")
+        cbox_rol.grid(row=5, column=1, sticky=EW, pady=5, padx=5)
+        tab_order.append(cbox_rol)
+
+    # ✅ FIX 3: Aplicar Tab order manualmente
+        def focus_next(event):
+            try:
+                idx = tab_order.index(event.widget)
+                next_widget = tab_order[(idx + 1) % len(tab_order)]
+                next_widget.focus_set()
+            except ValueError:
+                pass
+            return "break"
+
+        def focus_prev(event):
+            try:
+                idx = tab_order.index(event.widget)
+                prev_widget = tab_order[(idx - 1) % len(tab_order)]
+                prev_widget.focus_set()
+            except ValueError:
+                pass
+            return "break"
+
+        for widget in tab_order:
+            widget.bind("<Tab>",       focus_next)
+            widget.bind("<Shift-Tab>", focus_prev)
+
+    # --- SECCIÓN PERMISOS ---
+        fr_permisos = ttk.LabelFrame(scrollable_frame, text=" Configuración de Accesos ",
+                                  padding=10, bootstyle="warning")
+        fr_permisos.pack(fill=X, pady=15)
+
+        col1 = ttk.Frame(fr_permisos); col1.pack(side=LEFT, fill=Y, expand=True, padx=5)
+        col2 = ttk.Frame(fr_permisos); col2.pack(side=LEFT, fill=Y, expand=True, padx=5)
+
+        ttk.Label(col1, text="Operativos",    font=("Segoe UI", 8, "bold"), foreground="gray").pack(anchor=W)
+        ttk.Checkbutton(col1, text="Crear Materiales",    variable=var_p_crear, bootstyle="round-toggle").pack(anchor=W, pady=2)
+        ttk.Checkbutton(col1, text="Registrar ENTRADAS",  variable=var_p_ent,   bootstyle="round-toggle").pack(anchor=W, pady=2)
+        ttk.Checkbutton(col1, text="Registrar SALIDAS",   variable=var_p_sal,   bootstyle="round-toggle").pack(anchor=W, pady=2)
+        ttk.Checkbutton(col1, text="Editar Maestros",     variable=var_p_edit,  bootstyle="round-toggle").pack(anchor=W, pady=2)
+
+        ttk.Label(col2, text="Módulos Admin", font=("Segoe UI", 8, "bold"), foreground="gray").pack(anchor=W)
+        ttk.Checkbutton(col2, text="Gestión Catálogos",   variable=var_p_cat,   bootstyle="round-toggle").pack(anchor=W, pady=2)
+        ttk.Checkbutton(col2, text="Modificar Histórico", variable=var_p_hist,  bootstyle="round-toggle").pack(anchor=W, pady=2)
+        ttk.Checkbutton(col2, text="Ajustes (Logos)",     variable=var_p_conf,  bootstyle="round-toggle").pack(anchor=W, pady=2)
+
+    # Lógica de Roles
+        def al_cambiar_rol(event):
+            rol = var_rol.get()
+            if rol == "ADMIN":
+                for v in [var_p_crear, var_p_ent, var_p_sal, var_p_edit,
+                        var_p_del, var_p_cat, var_p_hist, var_p_conf]:
+                    v.set(1)
+            elif rol == "OPERADOR":
+                var_p_crear.set(1); var_p_ent.set(1); var_p_sal.set(1)
+                var_p_edit.set(0);  var_p_del.set(0)
+                var_p_cat.set(0);   var_p_hist.set(0); var_p_conf.set(0)
+            elif rol == "SOLO LECTURA":
+                for v in [var_p_crear, var_p_ent, var_p_sal, var_p_edit,
+                        var_p_del, var_p_cat, var_p_hist, var_p_conf]:
+                    v.set(0)
+
+        cbox_rol.bind("<<ComboboxSelected>>", al_cambiar_rol)
+
+    # ==========================================
+    # FUNCIONES CRUD
+    # ==========================================
+        def limpiar_form():
+            self.usuario_seleccionado_id = None
+            self.password_actual_hash    = ""
+            var_user.set(""); var_pass.set("")
+            var_nombre.set(""); var_email.set("")
+            var_foto_path.set("")
+            var_rol.set("OPERADOR")
+            self.lbl_preview.configure(image="", text="👤")
+            tree_users.selection_remove(tree_users.selection())
+            al_cambiar_rol(None)
+            btn_guardar.configure(text="💾 CREAR NUEVO", bootstyle="success")
+            e_user.focus_set()
+
+        def cargar_usuarios_en_lista():
+            for item in tree_users.get_children():
+                tree_users.delete(item)
+            filas = self.db.consultar(
+                "SELECT id, usuario, rol, nombre_completo FROM usuarios ORDER BY usuario ASC"
+            )
+            for f in filas:
+                tree_users.insert("", END, values=(f['id'], f['usuario'], f['rol'], f['nombre_completo']))
+
+        def llenar_formulario(event):
+            sel = tree_users.selection()
+            if not sel:
+                return
+            id_u = tree_users.item(sel[0])['values'][0]
+            self.usuario_seleccionado_id = id_u
+
+            datos = self.db.consultar("SELECT * FROM usuarios WHERE id=?", (id_u,))
+            if datos:
+                u = dict(datos[0])
+                var_user.set(u['usuario'])
+                self.password_actual_hash = u['password']
+                var_pass.set("")
+                var_nombre.set(u.get('nombre_completo', ''))
+                var_email.set(u.get('email', ''))
+                var_rol.set(u['rol'])
+                var_foto_path.set(u.get('foto_path', ''))
+
+                import json
+                try:
+                    p = json.loads(u.get('permisos', '{}'))
+                    var_p_crear.set(p.get('crear',    0))
+                    var_p_ent.set(  p.get('entrada',  0))
+                    var_p_sal.set(  p.get('salida',   0))
+                    var_p_edit.set( p.get('editar',   0))
+                    var_p_del.set(  p.get('eliminar', 0))
+                    var_p_cat.set(  p.get('catalogos',0))
+                    var_p_hist.set( p.get('historico',0))
+                    var_p_conf.set( p.get('ajustes',  0))
+                except:
+                    al_cambiar_rol(None)
+
+                foto = u.get('foto_path', '')
+                if foto and os.path.exists(foto):
                     try:
-                        img = Image.open(ruta).resize((70, 70), Image.LANCZOS)
+                        img = Image.open(foto).resize((70, 70), Image.LANCZOS)
                         self.tk_foto_temp = ImageTk.PhotoImage(img, master=top)
                         self.lbl_preview.configure(image=self.tk_foto_temp, text="")
-                    except: pass
-                top.lift()
-            
-            ttk.Button(fr_foto, text="📂 Cambiar Foto", bootstyle="secondary-outline", command=seleccionar_foto).pack(side=LEFT, padx=10)
-
-            # --- CAMPOS DE TEXTO ---
-            fr_campos = ttk.Frame(scrollable_frame)
-            fr_campos.pack(fill=X)
-            fr_campos.columnconfigure(1, weight=1)
-            
-            # Fila 0: Usuario
-            ttk.Label(fr_campos, text="Usuario (Login):").grid(row=0, column=0, sticky=W, pady=5)
-            ttk.Entry(fr_campos, textvariable=var_user, font=("Segoe UI", 10, "bold")).grid(row=0, column=1, sticky=EW, pady=5, padx=5)
-            
-            # Fila 1: Contraseña
-            ttk.Label(fr_campos, text="Contraseña:").grid(row=1, column=0, sticky=W, pady=5)
-            fr_pass = ttk.Frame(fr_campos)
-            fr_pass.grid(row=1, column=1, sticky=EW, pady=5, padx=5)
-            e_pass = ttk.Entry(fr_pass, textvariable=var_pass, show="*")
-            e_pass.pack(side=LEFT, fill=X, expand=True)
-            ver_pass = tk.BooleanVar()
-            ttk.Checkbutton(fr_pass, text="👁️", variable=ver_pass, bootstyle="toolbutton", command=lambda: e_pass.config(show="" if ver_pass.get() else "*")).pack(side=LEFT)
-            
-            # Fila 2: Nota Password
-            self.lbl_help_pass = ttk.Label(fr_campos, text="* Obligatoria para nuevos", font=("Segoe UI", 8), bootstyle="secondary")
-            self.lbl_help_pass.grid(row=2, column=1, sticky=W)
-
-            # Fila 3: Nombre Completo
-            ttk.Label(fr_campos, text="Nombre Completo:").grid(row=3, column=0, sticky=W, pady=5)
-            ttk.Entry(fr_campos, textvariable=var_nombre).grid(row=3, column=1, sticky=EW, pady=5, padx=5)
-
-            # --- Fila 4: CORREO ELECTRÓNICO (NUEVO) ---
-            ttk.Label(fr_campos, text="Correo Electrónico:").grid(row=4, column=0, sticky=W, pady=5)
-            ttk.Entry(fr_campos, textvariable=var_email).grid(row=4, column=1, sticky=EW, pady=5, padx=5)
-
-            # Fila 5: Rol
-            ttk.Label(fr_campos, text="Rol (Etiqueta):").grid(row=5, column=0, sticky=W, pady=5)
-            cbox_rol = ttk.Combobox(fr_campos, textvariable=var_rol, values=["OPERADOR", "ADMIN", "SOLO LECTURA"], state="readonly")
-            cbox_rol.grid(row=5, column=1, sticky=EW, pady=5, padx=5)
-
-            # --- SECCIÓN PERMISOS ---
-            fr_permisos = ttk.LabelFrame(scrollable_frame, text=" Configuración de Accesos ", padding=10, bootstyle="warning")
-            fr_permisos.pack(fill=X, pady=15)
-            
-            col1 = ttk.Frame(fr_permisos); col1.pack(side=LEFT, fill=Y, expand=True, padx=5)
-            col2 = ttk.Frame(fr_permisos); col2.pack(side=LEFT, fill=Y, expand=True, padx=5)
-
-            ttk.Label(col1, text="Operativos", font=("Segoe UI", 8, "bold"), foreground="gray").pack(anchor=W)
-            ttk.Checkbutton(col1, text="Crear Materiales", variable=var_p_crear, bootstyle="round-toggle").pack(anchor=W, pady=2)
-            ttk.Checkbutton(col1, text="Registrar ENTRADAS", variable=var_p_ent, bootstyle="round-toggle").pack(anchor=W, pady=2)
-            ttk.Checkbutton(col1, text="Registrar SALIDAS", variable=var_p_sal, bootstyle="round-toggle").pack(anchor=W, pady=2)
-            ttk.Checkbutton(col1, text="Editar Maestros", variable=var_p_edit, bootstyle="round-toggle").pack(anchor=W, pady=2)
-            
-            ttk.Label(col2, text="Módulos Admin", font=("Segoe UI", 8, "bold"), foreground="gray").pack(anchor=W)
-            ttk.Checkbutton(col2, text="Gestión Catálogos", variable=var_p_cat, bootstyle="round-toggle").pack(anchor=W, pady=2)
-            ttk.Checkbutton(col2, text="Modificar Histórico", variable=var_p_hist, bootstyle="round-toggle").pack(anchor=W, pady=2)
-            ttk.Checkbutton(col2, text="Ajustes (Logos)", variable=var_p_conf, bootstyle="round-toggle").pack(anchor=W, pady=2)
-            
-            # --- Lógica de Roles ---
-            def al_cambiar_rol(event):
-                rol = var_rol.get()
-                if rol == "ADMIN":
-                    var_p_crear.set(1); var_p_ent.set(1); var_p_sal.set(1); var_p_edit.set(1); var_p_del.set(1)
-                    var_p_cat.set(1); var_p_hist.set(1); var_p_conf.set(1)
-                elif rol == "OPERADOR":
-                    var_p_crear.set(1); var_p_ent.set(1); var_p_sal.set(1); var_p_edit.set(0); var_p_del.set(0)
-                    var_p_cat.set(0); var_p_hist.set(0); var_p_conf.set(0)
-                elif rol == "SOLO LECTURA":
-                    var_p_crear.set(0); var_p_ent.set(0); var_p_sal.set(0); var_p_edit.set(0); var_p_del.set(0)
-                    var_p_cat.set(0); var_p_hist.set(0); var_p_conf.set(0)
-            cbox_rol.bind("<<ComboboxSelected>>", al_cambiar_rol)
-
-            # ==========================================
-            # FUNCIONES INTERNAS (CRUD USUARIOS)
-            # ==========================================
-            def limpiar_form():
-                self.usuario_seleccionado_id = None; self.password_actual_hash = ""
-                var_user.set(""); var_pass.set(""); var_nombre.set(""); var_email.set(""); var_foto_path.set("")
-                var_rol.set("OPERADOR"); self.lbl_preview.configure(image="", text="👤")
-                tree_users.selection_remove(tree_users.selection())
-                al_cambiar_rol(None)
-                btn_guardar.configure(text="💾 CREAR NUEVO", bootstyle="success")
-
-            def cargar_usuarios_en_lista():
-                for item in tree_users.get_children(): tree_users.delete(item)
-                filas = self.db.consultar("SELECT id, usuario, rol, nombre_completo FROM usuarios ORDER BY usuario ASC")
-                for f in filas:
-                    tree_users.insert("", END, values=(f['id'], f['usuario'], f['rol'], f['nombre_completo']))
-
-            def llenar_formulario(event):
-                sel = tree_users.selection()
-                if not sel: return
-                id_u = tree_users.item(sel[0])['values'][0]
-                self.usuario_seleccionado_id = id_u
-                
-                # Consultamos datos completos
-                datos = self.db.consultar("SELECT * FROM usuarios WHERE id=?", (id_u,))
-                if datos:
-                    u = dict(datos[0])
-                    var_user.set(u['usuario']); self.password_actual_hash = u['password']; var_pass.set("")
-                    var_nombre.set(u.get('nombre_completo',''))
-                    var_email.set(u.get('email','')) # <--- CARGAR EMAIL
-                    var_rol.set(u['rol'])
-                    var_foto_path.set(u.get('foto_path',''))
-                    
-                    import json
-                    try:
-                        p = json.loads(u.get('permisos','{}'))
-                        var_p_crear.set(p.get('crear',0)); var_p_ent.set(p.get('entrada',0)); var_p_sal.set(p.get('salida',0))
-                        var_p_edit.set(p.get('editar',0)); var_p_del.set(p.get('eliminar',0))
-                        var_p_cat.set(p.get('catalogos',0)); var_p_hist.set(p.get('historico',0)); var_p_conf.set(p.get('ajustes',0))
-                    except: al_cambiar_rol(None)
-                    
-                    if u.get('foto_path') and os.path.exists(u['foto_path']):
-                         try:
-                            img = Image.open(u['foto_path']).resize((70, 70), Image.LANCZOS)
-                            self.tk_foto_temp = ImageTk.PhotoImage(img, master=top)
-                            self.lbl_preview.configure(image=self.tk_foto_temp, text="")
-                         except: pass
-                    else: self.lbl_preview.configure(image="", text="👤")
-                    btn_guardar.configure(text="💾 ACTUALIZAR", bootstyle="warning")
-
-            tree_users.bind("<<TreeviewSelect>>", llenar_formulario)
-
-            def guardar():
-                u = var_user.get().strip().upper()
-                p = var_pass.get().strip()
-                r = var_rol.get()
-                n = var_nombre.get().strip().upper() or u
-                e = var_email.get().strip() # <--- OBTENER EMAIL
-                f = var_foto_path.get()
-                
-                import json
-                permisos = json.dumps({"crear":var_p_crear.get(), "entrada":var_p_ent.get(), "salida":var_p_sal.get(), 
-                                       "editar":var_p_edit.get(), "eliminar":var_p_del.get(), "catalogos":var_p_cat.get(),
-                                       "historico":var_p_hist.get(), "ajustes":var_p_conf.get()})
-                
-                if not u: return
-                p_fin = self.password_actual_hash if (self.usuario_seleccionado_id and not p) else hashlib.sha256(p.encode()).hexdigest()
-                
-                if self.usuario_seleccionado_id:
-                    self.db.ejecutar("UPDATE usuarios SET usuario=?, password=?, rol=?, nombre_completo=?, email=?, foto_path=?, permisos=? WHERE id=?", 
-                                     (u, p_fin, r, n, e, f, permisos, self.usuario_seleccionado_id))
+                    except:
+                        pass
                 else:
-                    self.db.ejecutar("INSERT INTO usuarios (usuario, password, rol, nombre_completo, email, foto_path, permisos) VALUES (?,?,?,?,?,?,?)",
-                                     (u, p_fin, r, n, e, f, permisos))
-                
-                limpiar_form(); cargar_usuarios_en_lista()
-                messagebox.showinfo("Éxito", "Usuario guardado correctamente.")
+                    self.lbl_preview.configure(image="", text="👤")
 
-            def eliminar():
-                if self.usuario_seleccionado_id and messagebox.askyesno("Borrar", "¿Eliminar usuario?"):
-                    self.db.ejecutar("DELETE FROM usuarios WHERE id=?", (self.usuario_seleccionado_id,))
-                    limpiar_form(); cargar_usuarios_en_lista()
+                btn_guardar.configure(text="💾 ACTUALIZAR", bootstyle="warning")
 
-            # --- BOTONERA INFERIOR ---
-            fr_btns = ttk.Frame(fr_form, padding=(0, 10))
-            fr_btns.pack(side=BOTTOM, fill=X)
+        tree_users.bind("<<TreeviewSelect>>", llenar_formulario)
 
-            ttk.Button(fr_btns, text="🧹 Limpiar", bootstyle="secondary-outline", command=limpiar_form).pack(side=LEFT, expand=True, fill=X, padx=2)
-            btn_guardar = ttk.Button(fr_btns, text="💾 CREAR NUEVO", bootstyle="success", command=guardar)
-            btn_guardar.pack(side=LEFT, expand=True, fill=X, padx=2)
-            ttk.Button(fr_btns, text="🗑️ Eliminar", bootstyle="danger", command=eliminar).pack(side=LEFT, expand=True, fill=X, padx=2)
+    # ✅ FIX 1: guardar usa parent=top y top.lift()/focus_force() en todos los mensajes
+        def guardar():
+            import re, json
 
-            # Carga inicial
-            cargar_usuarios_en_lista()
+            u = var_user.get().strip().upper()
+            p = var_pass.get().strip()
+            r = var_rol.get()
+            n = var_nombre.get().strip().upper() or u
+            e = var_email.get().strip()
+            f = var_foto_path.get()
 
-        except Exception as e:
-            print(f"Error: {e}")
-            top.destroy()
+        # Validar usuario
+            if not u:
+                messagebox.showwarning("Campo requerido",
+                                    "El nombre de usuario es obligatorio.",
+                                    parent=top)
+                top.lift(); top.focus_force()
+                return
+
+            es_nuevo    = (self.usuario_seleccionado_id is None)
+            cambio_pass = bool(p)
+
+        # Contraseña obligatoria en nuevo
+            if es_nuevo and not p:
+                messagebox.showwarning(
+                    "Contraseña requerida",
+                    "⚠️  Debes asignar una contraseña al nuevo usuario.\n\n"
+                    "📋  REQUISITOS OBLIGATORIOS:\n"
+                    "   • Mínimo 8 caracteres\n"
+                    "   • Al menos UNA MAYÚSCULA  (A-Z)\n"
+                    "   • Al menos una minúscula  (a-z)\n"
+                    "   • Al menos UN número      (0-9)\n"
+                    "   • Solo alfanumérico (sin símbolos)\n\n"
+                    "Ejemplo válido:  Almacen2024",
+                    parent=top
+                )
+                top.lift(); top.focus_force()
+                e_pass.focus_set()
+                return
+
+        # Validar reglas si hay nueva contraseña
+            if cambio_pass:
+                errores = []
+                if len(p) < 8:
+                    errores.append(f"  • Mínimo 8 caracteres (tienes {len(p)})")
+                if not re.search(r'[A-Z]', p):
+                    errores.append("  • Falta al menos una MAYÚSCULA  (A-Z)")
+                if not re.search(r'[a-z]', p):
+                    errores.append("  • Falta al menos una minúscula  (a-z)")
+                if not re.search(r'[0-9]', p):
+                    errores.append("  • Falta al menos un número      (0-9)")
+                if not re.match(r'^[a-zA-Z0-9]+$', p):
+                    errores.append("  • Solo letras y números (sin espacios ni símbolos)")
+
+                if errores:
+                    messagebox.showerror(
+                        "❌  Contraseña no válida",
+                        "La contraseña NO cumple los estándares:\n\n"
+                        + "\n".join(errores) +
+                        "\n\n──────────────────────────────────\n"
+                        "📋  REQUISITOS OBLIGATORIOS:\n"
+                        "   ✅  Mínimo 8 caracteres\n"
+                        "   ✅  Al menos una MAYÚSCULA  (A-Z)\n"
+                        "   ✅  Al menos una minúscula  (a-z)\n"
+                        "   ✅  Al menos un número      (0-9)\n"
+                        "   ✅  Solo letras y números   (sin símbolos)\n\n"
+                        "Ejemplo válido:  Almacen2024",
+                        parent=top
+                    )
+                    top.lift(); top.focus_force()
+                    e_pass.focus_set()
+                    return
+
+            # Hash seguro
+                salt    = secrets.token_hex(16)
+                h_nuevo = hashlib.pbkdf2_hmac(
+                    'sha256', p.encode(), salt.encode(), 100000
+                ).hex()
+                p_fin = f"{salt}:{h_nuevo}"
+            else:
+                p_fin = self.password_actual_hash
+
+        # Permisos
+            permisos = json.dumps({
+                "crear":     var_p_crear.get(),
+                "entrada":   var_p_ent.get(),
+                "salida":    var_p_sal.get(),
+                "editar":    var_p_edit.get(),
+                "eliminar":  var_p_del.get(),
+                "catalogos": var_p_cat.get(),
+                "historico": var_p_hist.get(),
+                "ajustes":   var_p_conf.get()
+            })
+
+            try:
+                if self.usuario_seleccionado_id:
+                    self.db.ejecutar(
+                        "UPDATE usuarios SET usuario=?, password=?, rol=?, "
+                        "nombre_completo=?, email=?, foto_path=?, permisos=? WHERE id=?",
+                        (u, p_fin, r, n, e, f, permisos, self.usuario_seleccionado_id)
+                    )
+                    accion = "actualizado"
+                else:
+                    self.db.ejecutar(
+                        "INSERT INTO usuarios "
+                        "(usuario, password, rol, nombre_completo, email, foto_path, permisos) "
+                        "VALUES (?,?,?,?,?,?,?)",
+                        (u, p_fin, r, n, e, f, permisos)
+                    )
+                    accion = "creado"
+
+                limpiar_form()
+                cargar_usuarios_en_lista()
+                messagebox.showinfo("✅  Guardado",
+                                    f"Usuario '{u}' {accion} correctamente.",
+                                    parent=top)
+                top.lift(); top.focus_force()
+
+            except sqlite3.IntegrityError:
+                messagebox.showerror("Usuario duplicado",
+                                    f"Ya existe un usuario con el nombre '{u}'.\n"
+                                    "Elige un nombre diferente.",
+                                    parent=top)
+                top.lift(); top.focus_force()
+            except Exception as ex:
+                messagebox.showerror("Error al guardar",
+                                    f"No se pudo guardar el usuario:\n{ex}",
+                                    parent=top)
+                top.lift(); top.focus_force()
+
+        def eliminar():
+            if self.usuario_seleccionado_id:
+                if messagebox.askyesno("Borrar", "¿Eliminar usuario?", parent=top):
+                    self.db.ejecutar("DELETE FROM usuarios WHERE id=?",
+                                    (self.usuario_seleccionado_id,))
+                    limpiar_form()
+                    cargar_usuarios_en_lista()
+                    top.lift(); top.focus_force()
+
+    # --- BOTONERA INFERIOR ---
+        fr_btns = ttk.Frame(fr_form, padding=(0, 10))
+        fr_btns.pack(side=BOTTOM, fill=X)
+
+        ttk.Button(fr_btns, text="🧹 Limpiar", bootstyle="secondary-outline",
+                command=limpiar_form).pack(side=LEFT, expand=True, fill=X, padx=2)
+        btn_guardar = ttk.Button(fr_btns, text="💾 CREAR NUEVO",
+                                bootstyle="success", command=guardar)
+        btn_guardar.pack(side=LEFT, expand=True, fill=X, padx=2)
+        ttk.Button(fr_btns, text="🗑️ Eliminar", bootstyle="danger",
+                command=eliminar).pack(side=LEFT, expand=True, fill=X, padx=2)
+
+    # Carga inicial
+        cargar_usuarios_en_lista()
+        e_user.focus_set()
 
 
     def registrar_accion(self, tipo, partida, material, cantidad, destino, detalles=""):
@@ -2836,224 +4414,826 @@ class SistemaInventario:
     #  MÓDULO DE CONSUMO (CORREGIDO: GRÁFICA + LISTA COMPLETA)
     # ------------------------------------------------------------------
     def setup_tab_consumo(self):
-        """Construye la interfaz: Gráfica arriba, Lista detallada abajo"""
-        
-        # Usamos un PanedWindow para dividir la pantalla en 2 (Arriba/Abajo) ajustables
-        self.paned_consumo = ttk.PanedWindow(self.tab_consumo, orient=VERTICAL)
-        self.paned_consumo.pack(fill=BOTH, expand=True)
+        """Panel de Consumo con fechas exactas día/mes/año"""
 
-        # --- SECCIÓN SUPERIOR: FILTROS Y GRÁFICA ---
-        self.frame_sup = ttk.Frame(self.paned_consumo)
-        self.paned_consumo.add(self.frame_sup, weight=3) # La gráfica ocupa más espacio
+        # ── PANEL SUPERIOR: FILTROS ──────────────────────────────────
+        fr_filtros = ttk.LabelFrame(
+            self.tab_consumo,
+            text=" 🔍 Configuración del Reporte ",
+            padding=12, bootstyle="primary")
+        fr_filtros.pack(fill=X, padx=5, pady=(5, 0))
 
-        # 1. Controles (Filtros)
-        fr_control = ttk.Frame(self.frame_sup, padding=10)
-        fr_control.pack(fill=X)
+        # Fila 1 — Tipo de reporte
+        fr_tipo = ttk.Frame(fr_filtros)
+        fr_tipo.pack(fill=X, pady=(0, 8))
 
-        ttk.Label(fr_control, text="📅 Periodo:", font=("Segoe UI", 10, "bold")).pack(side=LEFT)
-        
-        meses = ["01-Enero", "02-Febrero", "03-Marzo", "04-Abril", "05-Mayo", "06-Junio",
-                 "07-Julio", "08-Agosto", "09-Septiembre", "10-Octubre", "11-Noviembre", "12-Diciembre"]
-        self.cb_mes_graf = ttk.Combobox(fr_control, values=meses, state="readonly", width=12)
-        self.cb_mes_graf.current(datetime.now().month - 1)
-        self.cb_mes_graf.pack(side=LEFT, padx=5)
+        ttk.Label(
+            fr_tipo,
+            text="Tipo de Reporte:",
+            font=("Segoe UI", 10, "bold")
+        ).pack(side=LEFT, padx=(0, 10))
 
-        self.ent_anio_graf = ttk.Entry(fr_control, width=6)
-        self.ent_anio_graf.insert(0, str(datetime.now().year))
-        self.ent_anio_graf.pack(side=LEFT, padx=5)
+        self.var_tipo_reporte = tk.StringVar(value="PERIODO")
 
-        ttk.Button(fr_control, text="🔄 Generar Reporte", bootstyle="primary", command=self.generar_grafica_consumo).pack(side=LEFT, padx=15)
+        ttk.Radiobutton(
+            fr_tipo,
+            text="📅  Consumos del Periodo",
+            variable=self.var_tipo_reporte,
+            value="PERIODO",
+            bootstyle="primary",
+            command=self._actualizar_filtros_visibles
+        ).pack(side=LEFT, padx=8)
 
-        # Etiquetas de resumen rápido
-        self.lbl_resumen_total = ttk.Label(fr_control, text="", font=("Segoe UI", 10, "bold"), foreground="#2980b9")
-        self.lbl_resumen_total.pack(side=RIGHT, padx=10)
+        ttk.Radiobutton(
+            fr_tipo,
+            text="📂  Consumos del Periodo por Partida",
+            variable=self.var_tipo_reporte,
+            value="PERIODO_PARTIDA",
+            bootstyle="primary",
+            command=self._actualizar_filtros_visibles
+        ).pack(side=LEFT, padx=8)
 
-        # 2. Contenedor de la Gráfica
-        self.fr_grafica_container = ttk.Frame(self.frame_sup, padding=5, relief="solid", borderwidth=1)
-        self.fr_grafica_container.pack(fill=BOTH, expand=True, padx=10, pady=5)
-        
-        ttk.Label(self.fr_grafica_container, text="📊 La gráfica aparecerá aquí", foreground="gray").place(relx=0.5, rely=0.5, anchor=CENTER)
+        ttk.Radiobutton(
+            fr_tipo,
+            text="📊  Consumo General por Partida",
+            variable=self.var_tipo_reporte,
+            value="GENERAL_PARTIDA",
+            bootstyle="primary",
+            command=self._actualizar_filtros_visibles
+        ).pack(side=LEFT, padx=8)
 
-        # --- SECCIÓN INFERIOR: LISTA DETALLADA (TOP) ---
-        self.frame_inf = ttk.Frame(self.paned_consumo, padding=10)
-        self.paned_consumo.add(self.frame_inf, weight=2) # La lista ocupa menos espacio
+        ttk.Separator(fr_filtros, orient=HORIZONTAL).pack(fill=X, pady=6)
 
-        ttk.Label(self.frame_inf, text="📋 Detalle de Consumo (Ranking Completo)", font=("Segoe UI", 11, "bold"), bootstyle="secondary").pack(anchor=W, pady=(0, 5))
+        # Fila 2 — Filtros dinámicos
+        self.fr_filtros_dinamicos = ttk.Frame(fr_filtros)
+        self.fr_filtros_dinamicos.pack(fill=X)
 
-        # Tabla (Treeview)
-        cols = ("RANK", "MATERIAL", "CANTIDAD", "PORCENTAJE")
-        self.tree_consumo = ttk.Treeview(self.frame_inf, columns=cols, show="headings", height=8, bootstyle="info")
-        
-        self.tree_consumo.heading("RANK", text="N°"); self.tree_consumo.column("RANK", width=40, anchor=CENTER)
-        self.tree_consumo.heading("MATERIAL", text="MATERIAL / PRODUCTO"); self.tree_consumo.column("MATERIAL", width=400)
-        self.tree_consumo.heading("CANTIDAD", text="CONSUMO (Pzas)"); self.tree_consumo.column("CANTIDAD", width=120, anchor=CENTER)
-        self.tree_consumo.heading("PORCENTAJE", text="% TOTAL"); self.tree_consumo.column("PORCENTAJE", width=100, anchor=CENTER)
+        # ── Grupo A: Fechas exactas con día ───────────────────────────
+        self.fr_grupo_fechas = ttk.Frame(self.fr_filtros_dinamicos)
 
-        sc_y = ttk.Scrollbar(self.frame_inf, orient=VERTICAL, command=self.tree_consumo.yview)
-        self.tree_consumo.configure(yscrollcommand=sc_y.set)
-        
+        ttk.Label(
+            self.fr_grupo_fechas,
+            text="📅 Desde (DD/MM/AAAA):",
+            font=("Segoe UI", 9, "bold")
+        ).pack(side=LEFT)
+
+        # Campo día inicio
+        self.ent_dia_ini = ttk.Entry(
+            self.fr_grupo_fechas, width=3, justify=CENTER,
+            font=("Segoe UI", 10, "bold"))
+        self.ent_dia_ini.insert(0, "01")
+        self.ent_dia_ini.pack(side=LEFT, padx=(6, 1))
+
+        ttk.Label(self.fr_grupo_fechas, text="/").pack(side=LEFT)
+
+        # Campo mes inicio
+        self.ent_mes_ini = ttk.Entry(
+            self.fr_grupo_fechas, width=3, justify=CENTER,
+            font=("Segoe UI", 10, "bold"))
+        self.ent_mes_ini.insert(0, "01")
+        self.ent_mes_ini.pack(side=LEFT, padx=1)
+
+        ttk.Label(self.fr_grupo_fechas, text="/").pack(side=LEFT)
+
+        # Campo año inicio
+        self.ent_anio_ini = ttk.Entry(
+            self.fr_grupo_fechas, width=5, justify=CENTER,
+            font=("Segoe UI", 10, "bold"))
+        self.ent_anio_ini.insert(0, str(datetime.now().year))
+        self.ent_anio_ini.pack(side=LEFT, padx=(1, 15))
+
+        # ── TAB automático entre campos de fecha ──────────────────────
+        self.ent_dia_ini.bind("<Tab>",
+            lambda e: (self.ent_mes_ini.focus_set(), "break")[1])
+        self.ent_mes_ini.bind("<Tab>",
+            lambda e: (self.ent_anio_ini.focus_set(), "break")[1])
+
+        # Separador visual
+        ttk.Label(
+            self.fr_grupo_fechas,
+            text="➜  Hasta (DD/MM/AAAA):",
+            font=("Segoe UI", 9, "bold")
+        ).pack(side=LEFT, padx=(0, 6))
+
+        # Campo día fin
+        self.ent_dia_fin = ttk.Entry(
+            self.fr_grupo_fechas, width=3, justify=CENTER,
+            font=("Segoe UI", 10, "bold"))
+        self.ent_dia_fin.insert(0, str(datetime.now().day).zfill(2))
+        self.ent_dia_fin.pack(side=LEFT, padx=(0, 1))
+
+        ttk.Label(self.fr_grupo_fechas, text="/").pack(side=LEFT)
+
+        # Campo mes fin
+        self.ent_mes_fin = ttk.Entry(
+            self.fr_grupo_fechas, width=3, justify=CENTER,
+            font=("Segoe UI", 10, "bold"))
+        self.ent_mes_fin.insert(0, str(datetime.now().month).zfill(2))
+        self.ent_mes_fin.pack(side=LEFT, padx=1)
+
+        ttk.Label(self.fr_grupo_fechas, text="/").pack(side=LEFT)
+
+        # Campo año fin
+        self.ent_anio_fin = ttk.Entry(
+            self.fr_grupo_fechas, width=5, justify=CENTER,
+            font=("Segoe UI", 10, "bold"))
+        self.ent_anio_fin.insert(0, str(datetime.now().year))
+        self.ent_anio_fin.pack(side=LEFT, padx=(1, 0))
+
+        # TAB entre campos fin
+        self.ent_dia_fin.bind("<Tab>",
+            lambda e: (self.ent_mes_fin.focus_set(), "break")[1])
+        self.ent_mes_fin.bind("<Tab>",
+            lambda e: (self.ent_anio_fin.focus_set(), "break")[1])
+
+        # ── Grupo B: Selector de Partida ─────────────────────────────
+        self.fr_grupo_partida = ttk.Frame(self.fr_filtros_dinamicos)
+
+        ttk.Label(
+            self.fr_grupo_partida,
+            text="📂 Partida:",
+            font=("Segoe UI", 9, "bold")
+        ).pack(side=LEFT)
+
+        self.cb_partida_consumo = ttk.Combobox(
+            self.fr_grupo_partida,
+            state="readonly", width=20)
+        self.cb_partida_consumo.pack(side=LEFT, padx=(6, 0))
+
+        # Cargar partidas
+        rows_p = self.db.consultar(
+            "SELECT valor FROM catalogos WHERE tipo='PARTIDA' ORDER BY valor ASC")
+        lista_p = [r['valor'] for r in rows_p]
+        self.cb_partida_consumo['values'] = lista_p
+        if lista_p:
+            self.cb_partida_consumo.current(0)
+
+        # ── Botón Generar + Exportar ──────────────────────────────────
+        fr_btn = ttk.Frame(fr_filtros)
+        fr_btn.pack(fill=X, pady=(10, 0))
+
+        ttk.Button(
+            fr_btn,
+            text="🔄  Generar Reporte",
+            bootstyle="primary",
+            command=self.generar_grafica_consumo
+        ).pack(side=LEFT, ipady=4, padx=(0, 8))
+
+        ttk.Button(
+            fr_btn,
+            text="💾  Exportar a Excel",
+            bootstyle="success-outline",
+            command=self.exportar_excel_consumo
+        ).pack(side=LEFT, ipady=4, padx=(0, 15))
+
+        self.lbl_resumen_total = ttk.Label(
+            fr_btn, text="",
+            font=("Segoe UI", 11, "bold"),
+            foreground="#2980b9")
+        self.lbl_resumen_total.pack(side=LEFT)
+
+        # ── PANEL CENTRAL: GRÁFICA ────────────────────────────────────
+        self.fr_grafica_container = ttk.Frame(
+            self.tab_consumo,
+            padding=5, relief="solid", borderwidth=1)
+        self.fr_grafica_container.pack(
+            fill=BOTH, expand=True, padx=5, pady=5)
+
+        ttk.Label(
+            self.fr_grafica_container,
+            text="📊  Configura los filtros y haz clic en 'Generar Reporte'",
+            foreground="gray",
+            font=("Segoe UI", 12)
+        ).place(relx=0.5, rely=0.5, anchor=CENTER)
+
+        # ── PANEL INFERIOR: TABLA DETALLE ─────────────────────────────
+        fr_tabla = ttk.LabelFrame(
+            self.tab_consumo,
+            text=" 📋 Detalle de Consumo (Ranking Completo) ",
+            padding=8, bootstyle="secondary")
+        fr_tabla.pack(fill=X, padx=5, pady=(0, 5))
+
+        cols = ("RANK", "PARTIDA", "MATERIAL", "CANTIDAD", "PORCENTAJE")
+        self.tree_consumo = ttk.Treeview(
+            fr_tabla, columns=cols,
+            show="headings", height=7, bootstyle="info")
+
+        self.tree_consumo.heading("RANK",       text="N°")
+        self.tree_consumo.column( "RANK",       width=40,  anchor=CENTER)
+        self.tree_consumo.heading("PARTIDA",    text="PARTIDA")
+        self.tree_consumo.column( "PARTIDA",    width=80,  anchor=CENTER)
+        self.tree_consumo.heading("MATERIAL",   text="MATERIAL / PRODUCTO")
+        self.tree_consumo.column( "MATERIAL",   width=380)
+        self.tree_consumo.heading("CANTIDAD",   text="CONSUMO (Pzas)")
+        self.tree_consumo.column( "CANTIDAD",   width=110, anchor=CENTER)
+        self.tree_consumo.heading("PORCENTAJE", text="% TOTAL")
+        self.tree_consumo.column( "PORCENTAJE", width=90,  anchor=CENTER)
+
+        sc_tabla = ttk.Scrollbar(
+            fr_tabla, orient=VERTICAL,
+            command=self.tree_consumo.yview)
+        self.tree_consumo.configure(yscrollcommand=sc_tabla.set)
         self.tree_consumo.pack(side=LEFT, fill=BOTH, expand=True)
-        sc_y.pack(side=RIGHT, fill=Y)
+        sc_tabla.pack(side=RIGHT, fill=Y)
+
+        # Mostrar filtros iniciales
+        self._actualizar_filtros_visibles()
 
 
     def generar_grafica_consumo(self):
-        """
-        Gráfica Premium: Animación de entrada fluida + Interacción Hover
-        """
-        import matplotlib.pyplot as plt 
+        """Genera gráfica con fechas exactas día/mes/año"""
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-        import matplotlib.animation as animation 
-        import numpy as np
+        import matplotlib.animation as animation
+        import calendar
 
-        # 1. Limpiezas previas
-        for widget in self.fr_grafica_container.winfo_children(): widget.destroy()
-        for i in self.tree_consumo.get_children(): self.tree_consumo.delete(i)
-        
-        # DETENER ANIMACIÓN ANTERIOR (Vital para que no choque)
+        # ── Limpiar ───────────────────────────────────────────────────
+        for widget in self.fr_grafica_container.winfo_children():
+            widget.destroy()
+        for i in self.tree_consumo.get_children():
+            self.tree_consumo.delete(i)
+
         if hasattr(self, 'mi_animacion') and self.mi_animacion:
-            try: self.mi_animacion.event_source.stop()
-            except: pass
+            try:
+                self.mi_animacion.event_source.stop()
+            except:
+                pass
 
-        # 2. Validar Fechas
+        tipo         = self.var_tipo_reporte.get()
+        consumo      = {}
+        partida_info = {}
+        titulo_grafica = ""
+
+        # ── Leer y validar fechas ─────────────────────────────────────
+        def leer_fecha(ent_dia, ent_mes, ent_anio, nombre):
+            """Lee y valida una fecha desde 3 Entry separados"""
+            try:
+                dia  = int(ent_dia.get().strip())
+                mes  = int(ent_mes.get().strip())
+                anio = int(ent_anio.get().strip())
+
+                # Validar rangos básicos
+                if not (1 <= dia <= 31):
+                    raise ValueError(f"Día inválido en {nombre}")
+                if not (1 <= mes <= 12):
+                    raise ValueError(f"Mes inválido en {nombre}")
+                if anio < 2000:
+                    raise ValueError(f"Año inválido en {nombre}")
+
+                return datetime(anio, mes, dia)
+
+            except ValueError as e:
+                messagebox.showerror(
+                    "❌ Fecha inválida",
+                    f"Error en la fecha {nombre}:\n{e}\n\n"
+                    "Formato correcto: DD / MM / AAAA\n"
+                    "Ejemplo: 10 / 03 / 2025",
+                    parent=self.root)
+                return None
+
         try:
-            mes_idx = self.cb_mes_graf.current() + 1
-            anio = int(self.ent_anio_graf.get())
-            nombre_mes = self.cb_mes_graf.get().split("-")[1]
-        except:
-            messagebox.showerror("Error", "Año inválido.")
+            if tipo in ("PERIODO", "PERIODO_PARTIDA"):
+
+                # Leer fechas exactas
+                fecha_ini = leer_fecha(
+                    self.ent_dia_ini,
+                    self.ent_mes_ini,
+                    self.ent_anio_ini, "DESDE")
+                if fecha_ini is None:
+                    return
+
+                fecha_fin = leer_fecha(
+                    self.ent_dia_fin,
+                    self.ent_mes_fin,
+                    self.ent_anio_fin, "HASTA")
+                if fecha_fin is None:
+                    return
+
+                # Ajustar hora fin al último segundo del día
+                fecha_fin = fecha_fin.replace(
+                    hour=23, minute=59, second=59)
+
+                if fecha_ini > fecha_fin:
+                    messagebox.showerror(
+                        "❌ Error de fechas",
+                        "La fecha DESDE no puede ser mayor que HASTA.",
+                        parent=self.root)
+                    return
+
+                str_ini = fecha_ini.strftime("%d/%m/%Y")
+                str_fin = fecha_fin.strftime("%d/%m/%Y")
+
+                if tipo == "PERIODO":
+                    titulo_grafica = (
+                        f"Consumo del {str_ini}  →  {str_fin}"
+                    )
+                    partida_filtro = None
+                else:
+                    partida_filtro = self.cb_partida_consumo.get()
+                    titulo_grafica = (
+                        f"Consumo Partida {partida_filtro}\n"
+                        f"{str_ini}  →  {str_fin}"
+                    )
+
+                # Consultar historial
+                sql = """
+                    SELECT h.fecha_hora, h.material, h.cantidad, i.partida
+                    FROM historial h
+                    LEFT JOIN inventario i ON h.material = i.material
+                    WHERE h.tipo LIKE '%SALIDA%'
+                       OR h.tipo LIKE '%HISTORICO (-)%'
+                """
+                datos = self.db.consultar(sql)
+
+                for d in datos:
+                    try:
+                        raw    = d['fecha_hora']
+                        partes = raw.split("/")
+                        dia_d  = int(partes[0])
+                        mes_d  = int(partes[1])
+                        anio_d = int(partes[2].split(" ")[0])
+                        f_obj  = datetime(anio_d, mes_d, dia_d)
+                    except:
+                        continue
+
+                    if not (fecha_ini <= f_obj <= fecha_fin):
+                        continue
+
+                    part = d['partida'] or "S/P"
+                    if partida_filtro and part != partida_filtro:
+                        continue
+
+                    mat  = d['material']
+                    cant = d['cantidad']
+                    consumo[mat]      = consumo.get(mat, 0) + cant
+                    partida_info[mat] = part
+
+            elif tipo == "GENERAL_PARTIDA":
+                partida_filtro = self.cb_partida_consumo.get()
+                titulo_grafica = (
+                    f"Consumo General  —  Partida {partida_filtro}"
+                )
+
+                sql = """
+                    SELECT h.material, h.cantidad, i.partida
+                    FROM historial h
+                    LEFT JOIN inventario i ON h.material = i.material
+                    WHERE (h.tipo LIKE '%SALIDA%'
+                       OR h.tipo LIKE '%HISTORICO (-)%')
+                      AND i.partida = ?
+                """
+                datos = self.db.consultar(sql, (partida_filtro,))
+
+                for d in datos:
+                    mat  = d['material']
+                    cant = d['cantidad']
+                    consumo[mat]      = consumo.get(mat, 0) + cant
+                    partida_info[mat] = partida_filtro
+
+        except Exception as e:
+            messagebox.showerror(
+                "Error", f"Error procesando filtros:\n{e}")
             return
 
-        # 3. Obtener Datos
-        sql = "SELECT fecha_hora, material, cantidad FROM historial WHERE tipo LIKE '%SALIDA%' OR tipo LIKE '%HISTORICO (-)%'"
-        datos = self.db.consultar(sql)
-        
-        consumo = {}
-        total_mes = 0
-
-        for d in datos:
-            try:
-                fecha_raw = d['fecha_hora']
-                if "/" in fecha_raw:
-                    partes = fecha_raw.split("/")
-                    m = int(partes[1])
-                    y = int(partes[2].split(" ")[0])
-                    
-                    if m == mes_idx and y == anio:
-                        mat = d['material']
-                        cant = d['cantidad']
-                        consumo[mat] = consumo.get(mat, 0) + cant
-                        total_mes += cant
-            except: continue
-
+        # ── Sin datos ─────────────────────────────────────────────────
         if not consumo:
-            ttk.Label(self.fr_grafica_container, text=f"Sin movimientos en {nombre_mes} {anio}", 
-                      font=("Segoe UI", 16), foreground="red").place(relx=0.5, rely=0.5, anchor=CENTER)
+            ttk.Label(
+                self.fr_grafica_container,
+                text="⚠️  Sin movimientos para los filtros seleccionados.",
+                font=("Segoe UI", 14),
+                foreground="#e74c3c"
+            ).place(relx=0.5, rely=0.5, anchor=CENTER)
             self.lbl_resumen_total.config(text="Total: 0 pzas")
             return
 
-        # 4. Ordenar datos (Top 10)
-        items_ordenados = sorted(consumo.items(), key=lambda x: x[1], reverse=True)
-        
-        # Llenar Tabla
-        for idx, (nom, cant) in enumerate(items_ordenados, 1):
-            porcentaje = (cant / total_mes) * 100
-            self.tree_consumo.insert("", END, values=(f"{idx}°", nom, f"{int(cant)}", f"{porcentaje:.1f}%"))
+        total = sum(consumo.values())
+        self.lbl_resumen_total.config(
+            text=f"Total: {int(total)} piezas consumidas")
 
-        self.lbl_resumen_total.config(text=f"Total Mes: {int(total_mes)} piezas")
+        # ── Llenar tabla detalle ──────────────────────────────────────
+        items_ord = sorted(
+            consumo.items(), key=lambda x: x[1], reverse=True)
 
-        # Datos Gráfica
-        LIMITE_GRAFICA = 10 
-        nombres_graf = [x[0] for x in items_ordenados[:LIMITE_GRAFICA]]
-        cantidades_graf = [x[1] for x in items_ordenados[:LIMITE_GRAFICA]]
-        
-        # Invertir para visualización (el mayor arriba)
-        nombres_graf.reverse()
-        cantidades_graf.reverse()
+        for idx, (mat, cant) in enumerate(items_ord, 1):
+            pct  = (cant / total) * 100
+            part = partida_info.get(mat, "—")
+            self.tree_consumo.insert("", END,
+                values=(f"{idx}°", part, mat,
+                        f"{int(cant)}", f"{pct:.1f}%"))
 
-        # 5. CONFIGURACIÓN DE LA FIGURA
-        fig = Figure(figsize=(5, 4), dpi=100)
+        # ── Preparar datos gráfica (Top 12) ──────────────────────────
+        LIMITE       = 12
+        nombres_g    = [x[0] for x in items_ord[:LIMITE]]
+        cantidades_g = [x[1] for x in items_ord[:LIMITE]]
+        nombres_g.reverse()
+        cantidades_g.reverse()
+        n = len(nombres_g)
+
+        c_prim  = self.tema_actual.get("color_primario", "#3498db")
+        c_acent = self.tema_actual.get("color_acento",   "#e74c3c")
+        c_fondo = self.tema_actual.get("color_fondo",    "#FFFFFF")
+        c_texto = self.tema_actual.get("color_texto",    "#000000")
+
+        def hex_a_rgb(h):
+            h = h.lstrip("#")
+            return tuple(int(h[i:i+2], 16) / 255 for i in (0, 2, 4))
+
+        rgb_p = hex_a_rgb(c_prim)
+        rgb_a = hex_a_rgb(c_acent)
+        colores_barras = [
+            tuple(
+                rgb_p[k] + (rgb_a[k] - rgb_p[k]) * (i / max(n - 1, 1))
+                for k in range(3))
+            for i in range(n)
+        ]
+
+        # ── Figura ────────────────────────────────────────────────────
+        fig = Figure(figsize=(6, 4), dpi=100)
+        fig.patch.set_facecolor(c_fondo)
+
         ax = fig.add_subplot(111)
-        
-        COLOR_BARRA = '#3498db' # Azul
-        COLOR_HOVER = '#e74c3c' # Rojo
-        
-        # Inicializar barras CON ANCHO 0 (para animar después)
-        barras = ax.barh(nombres_graf, [0]*len(nombres_graf), color=COLOR_BARRA, height=0.6, alpha=0.9)
+        ax.set_facecolor(c_fondo)
 
-        # Estilo
-        ax.set_title(f"Top Consumo - {nombre_mes} {anio}", fontsize=12, fontweight='bold', color='#2c3e50')
-        ax.set_xlabel("Cantidad (Piezas)", fontsize=9)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_visible(False)
-        ax.spines['bottom'].set_color('#bdc3c7')
-        ax.xaxis.grid(True, color='#ecf0f1', linestyle='--')
+        barras = ax.barh(
+            nombres_g, [0] * n,
+            color=colores_barras, height=0.65, alpha=0.92)
+
+        ax.set_title(
+            titulo_grafica,
+            fontsize=11, fontweight='bold',
+            color=c_prim, pad=12)
+        ax.set_xlabel(
+            "Cantidad consumida (Pzas)",
+            fontsize=9, color=c_texto)
+        ax.tick_params(colors=c_texto, labelsize=8)
+
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+
+        ax.xaxis.grid(
+            True, color="#DDDDDD",
+            linestyle="--", linewidth=0.7)
         ax.set_axisbelow(True)
-        
-        # Ajuste de escala
-        if len(nombres_graf) < 5:
-            ax.set_ylim(-1, len(nombres_graf))
-        
-        # Fijar límite X para que no "baile" la gráfica al crecer
-        max_val = max(cantidades_graf) if cantidades_graf else 10
-        ax.set_xlim(0, max_val * 1.15) 
 
-        # --- A. DEFINICIÓN DE LA ANIMACIÓN ---
+        max_val = max(cantidades_g) if cantidades_g else 10
+        ax.set_xlim(0, max_val * 1.18)
+
+        # Etiquetas al final de barra
+        textos_val = []
+        for bar, val in zip(barras, cantidades_g):
+            txt = ax.text(
+                0,
+                bar.get_y() + bar.get_height() / 2,
+                f" {int(val)} pzas",
+                va='center', ha='left',
+                fontsize=8, color=c_texto,
+                fontweight='bold')
+            textos_val.append((txt, val))
+
+        fig.tight_layout(pad=1.5)
+
+        # ── Animación ─────────────────────────────────────────────────
+        FRAMES = 35
+
         def animar(frame):
-            # frame va de 0 a frames_total
-            # Usamos una función suave (no lineal) para que se vea elegante
-            progreso = frame / 30  # 30 frames total
-            
-            for bar, target in zip(barras, cantidades_graf):
-                # Efecto de desaceleración simple
-                current_width = target * progreso
-                bar.set_width(current_width)
-                
-            return barras
+            progreso = frame / FRAMES
+            p = 1 - (1 - progreso) ** 3
+            for bar, (txt, target) in zip(barras, textos_val):
+                w = target * p
+                bar.set_width(w)
+                txt.set_x(w)
+            return list(barras) + [t for t, _ in textos_val]
 
-        # --- B. INTERACTIVIDAD (HOVER) ---
-        annot = ax.annotate("", xy=(0,0), xytext=(10, 10), textcoords="offset points",
-                            bbox=dict(boxstyle="round", fc="white", ec="gray", alpha=0.9),
-                            fontsize=9, fontweight='bold', color='#2c3e50')
+        # ── Hover ─────────────────────────────────────────────────────
+        annot = ax.annotate(
+            "", xy=(0, 0), xytext=(8, 8),
+            textcoords="offset points",
+            bbox=dict(boxstyle="round,pad=0.4",
+                      fc="white", ec=c_prim, alpha=0.95),
+            fontsize=9, fontweight='bold', color=c_prim)
         annot.set_visible(False)
 
-        def actualizar_hover(bar, valor, nombre):
-            y = bar.get_y() + bar.get_height() / 2
-            x = bar.get_width()
-            annot.xy = (x, y)
-            text = f"{nombre}\n{int(valor)} pzas"
-            annot.set_text(text)
-
-        def al_mover_mouse(event):
-            vis = annot.get_visible()
-            if event.inaxes == ax:
-                encontro = False
-                for bar, val, nom in zip(barras, cantidades_graf, nombres_graf):
-                    cont, _ = bar.contains(event)
-                    if cont:
-                        actualizar_hover(bar, val, nom)
-                        annot.set_visible(True)
-                        bar.set_color(COLOR_HOVER)
-                        encontro = True
-                    else:
-                        bar.set_color(COLOR_BARRA)
-                
-                if encontro or vis:
+        def on_hover(event):
+            if event.inaxes != ax:
+                annot.set_visible(False)
+                fig.canvas.draw_idle()
+                return
+            for bar, (_, val), nom in zip(
+                    barras, textos_val, nombres_g):
+                cont, _ = bar.contains(event)
+                if cont:
+                    pct_h = (val / total) * 100
+                    annot.xy = (
+                        bar.get_width(),
+                        bar.get_y() + bar.get_height() / 2)
+                    annot.set_text(
+                        f"{nom[:30]}\n"
+                        f"{int(val)} pzas  ({pct_h:.1f}%)")
+                    annot.set_visible(True)
                     fig.canvas.draw_idle()
+                    return
+            annot.set_visible(False)
+            fig.canvas.draw_idle()
 
-        # Dibujar en Tkinter
-        canvas = FigureCanvasTkAgg(fig, master=self.fr_grafica_container)
+        # ── Dibujar en Tkinter ────────────────────────────────────────
+        canvas = FigureCanvasTkAgg(
+            fig, master=self.fr_grafica_container)
         canvas.draw()
-        canvas.get_tk_widget().pack(side=TOP, fill=BOTH, expand=True)
-        
-        # Conectar eventos
-        canvas.mpl_connect("motion_notify_event", al_mover_mouse)
-        
-        # INICIAR Y GUARDAR ANIMACIÓN (EL SECRETO PARA QUE NO DESAPAREZCA)
-        # blit=False es menos eficiente pero más compatible con Tkinter
-        self.mi_animacion = animation.FuncAnimation(fig, animar, frames=31, interval=20, blit=False, repeat=False)
+        canvas.get_tk_widget().pack(fill=BOTH, expand=True)
+        canvas.mpl_connect("motion_notify_event", on_hover)
 
+        self.mi_animacion = animation.FuncAnimation(
+            fig, animar,
+            frames=FRAMES + 1,
+            interval=18,
+            blit=False,
+            repeat=False)
+
+
+
+        
+    def exportar_excel_consumo(self):
+        """
+        Exporta el reporte de consumo a Excel con tabla y gráfica.
+        Compatible con los nuevos campos de fecha DD/MM/AAAA.
+        """
+        from openpyxl import Workbook
+        from openpyxl.styles import (Font, Alignment, PatternFill,
+                                      Border, Side as ExcelSide)
+        from openpyxl.chart import BarChart, Reference
+
+        # ── Verificar que hay datos ───────────────────────────────────
+        filas_tabla = self.tree_consumo.get_children()
+        if not filas_tabla:
+            messagebox.showwarning(
+                "Sin datos",
+                "Primero genera el reporte antes de exportar.",
+                parent=self.root)
+            return
+
+        # ── Pedir ruta ────────────────────────────────────────────────
+        ruta = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx")],
+            initialfile="Reporte_Consumo.xlsx",
+            title="Guardar Reporte de Consumo")
+        if not ruta:
+            return
+
+        try:
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Consumo"
+
+            # ── Estilos ───────────────────────────────────────────────
+            c_prim   = self.tema_actual.get("color_primario", "#1F4E79")
+            hex_prim = c_prim.lstrip("#")
+            hex_gris = "F2F2F2"
+            hex_blnc = "FFFFFF"
+
+            thin  = ExcelSide(border_style="thin", color="CCCCCC")
+            borde = Border(
+                top=thin, left=thin,
+                right=thin, bottom=thin)
+
+            fuente_titulo = Font(bold=True, size=14,
+                                  color=hex_prim, name="Segoe UI")
+            fuente_subtit = Font(bold=True, size=10,
+                                  color="444444", name="Segoe UI")
+            fuente_header = Font(bold=True, size=10,
+                                  color=hex_blnc, name="Segoe UI")
+            fuente_normal = Font(size=10, name="Segoe UI")
+            fuente_total  = Font(bold=True, size=10,
+                                  color=hex_prim, name="Segoe UI")
+
+            fill_header = PatternFill(
+                fill_type="solid", fgColor=hex_prim)
+            fill_gris   = PatternFill(
+                fill_type="solid", fgColor=hex_gris)
+            fill_total  = PatternFill(
+                fill_type="solid", fgColor="EBF3FB")
+
+            centro = Alignment(
+                horizontal="center", vertical="center")
+            izq    = Alignment(
+                horizontal="left", vertical="center",
+                wrap_text=True)
+
+            # ── Encabezados institucionales ───────────────────────────
+            h1 = self.db.get_config("HEADER_L1") or "INSTITUCIÓN"
+            h2 = self.db.get_config("HEADER_L2") or "SUBDIRECCIÓN"
+            h4 = self.db.get_config("HEADER_L4") or "DEPARTAMENTO"
+
+            ws.merge_cells("A1:F1")
+            ws["A1"]           = h1
+            ws["A1"].font      = fuente_titulo
+            ws["A1"].alignment = centro
+
+            ws.merge_cells("A2:F2")
+            ws["A2"]           = h2
+            ws["A2"].font      = fuente_subtit
+            ws["A2"].alignment = centro
+
+            ws.merge_cells("A3:F3")
+            ws["A3"]           = h4
+            ws["A3"].font      = fuente_subtit
+            ws["A3"].alignment = centro
+
+            # ── Título del reporte ────────────────────────────────────
+            tipo = self.var_tipo_reporte.get()
+
+            titulos_tipo = {
+                "PERIODO":         "REPORTE DE CONSUMO POR PERIODO",
+                "PERIODO_PARTIDA": "REPORTE DE CONSUMO POR PERIODO Y PARTIDA",
+                "GENERAL_PARTIDA": "REPORTE DE CONSUMO GENERAL POR PARTIDA"
+            }
+            titulo_rep = titulos_tipo.get(tipo, "REPORTE DE CONSUMO")
+
+            # ── Subtítulo con parámetros ──────────────────────────────
+            # Leer desde los nuevos campos DD/MM/AAAA
+            if tipo in ("PERIODO", "PERIODO_PARTIDA"):
+                try:
+                    dia_i  = self.ent_dia_ini.get().strip().zfill(2)
+                    mes_i  = self.ent_mes_ini.get().strip().zfill(2)
+                    anio_i = self.ent_anio_ini.get().strip()
+                    dia_f  = self.ent_dia_fin.get().strip().zfill(2)
+                    mes_f  = self.ent_mes_fin.get().strip().zfill(2)
+                    anio_f = self.ent_anio_fin.get().strip()
+
+                    str_ini   = f"{dia_i}/{mes_i}/{anio_i}"
+                    str_fin   = f"{dia_f}/{mes_f}/{anio_f}"
+                    subtitulo = f"Periodo: {str_ini}  —  {str_fin}"
+
+                    if tipo == "PERIODO_PARTIDA":
+                        subtitulo += (
+                            f"  |  Partida: "
+                            f"{self.cb_partida_consumo.get()}")
+                except:
+                    subtitulo = "Periodo no disponible"
+            else:
+                subtitulo = (
+                    f"Partida: {self.cb_partida_consumo.get()}"
+                    f"  |  Todo el historial")
+
+            ws.merge_cells("A5:F5")
+            ws["A5"] = titulo_rep
+            ws["A5"].font = Font(
+                bold=True, size=13,
+                color=hex_prim, name="Segoe UI")
+            ws["A5"].alignment = centro
+
+            ws.merge_cells("A6:F6")
+            ws["A6"] = subtitulo
+            ws["A6"].font = Font(
+                size=10, italic=True,
+                color="555555", name="Segoe UI")
+            ws["A6"].alignment = centro
+
+            # ── Encabezado de tabla ───────────────────────────────────
+            fila_hdr = 8
+            headers  = ["N°", "PARTIDA", "MATERIAL / PRODUCTO",
+                         "CONSUMO (Pzas)", "% DEL TOTAL", "ACUMULADO"]
+
+            for col, texto in enumerate(headers, 1):
+                cell           = ws.cell(
+                    row=fila_hdr, column=col, value=texto)
+                cell.font      = fuente_header
+                cell.fill      = fill_header
+                cell.alignment = centro
+                cell.border    = borde
+
+            # ── Datos desde la tabla visual ───────────────────────────
+            fila_dat   = fila_hdr + 1
+            total_pzas = 0
+            acumulado  = 0
+            datos_graf = []
+
+            for i, item_id in enumerate(filas_tabla):
+                vals = self.tree_consumo.item(item_id)['values']
+                rank    = vals[0]
+                partida = vals[1]
+                mat     = vals[2]
+                cant    = float(str(vals[3]).replace(",", ""))
+                pct     = vals[4]
+
+                total_pzas += cant
+                acumulado  += cant
+                datos_graf.append((mat[:35], cant))
+
+                ws.cell(row=fila_dat, column=1,
+                        value=rank).alignment = centro
+                ws.cell(row=fila_dat, column=2,
+                        value=partida).alignment = centro
+                ws.cell(row=fila_dat, column=3,
+                        value=mat).alignment = izq
+                ws.cell(row=fila_dat, column=4,
+                        value=cant).alignment = centro
+                ws.cell(row=fila_dat, column=5,
+                        value=pct).alignment = centro
+                ws.cell(row=fila_dat, column=6,
+                        value=acumulado).alignment = centro
+
+                for col in range(1, 7):
+                    cell        = ws.cell(row=fila_dat, column=col)
+                    cell.font   = fuente_normal
+                    cell.border = borde
+                    if i % 2 == 0:
+                        cell.fill = fill_gris
+
+                fila_dat += 1
+
+            # ── Fila TOTAL ────────────────────────────────────────────
+            ws.merge_cells(f"A{fila_dat}:C{fila_dat}")
+            ws[f"A{fila_dat}"]           = "TOTAL GENERAL"
+            ws[f"A{fila_dat}"].font      = fuente_total
+            ws[f"A{fila_dat}"].alignment = centro
+            ws[f"A{fila_dat}"].fill      = fill_total
+
+            ws[f"D{fila_dat}"]           = total_pzas
+            ws[f"D{fila_dat}"].font      = fuente_total
+            ws[f"D{fila_dat}"].alignment = centro
+            ws[f"D{fila_dat}"].fill      = fill_total
+
+            ws[f"E{fila_dat}"]           = "100%"
+            ws[f"E{fila_dat}"].font      = fuente_total
+            ws[f"E{fila_dat}"].alignment = centro
+            ws[f"E{fila_dat}"].fill      = fill_total
+
+            for col in range(1, 7):
+                ws.cell(row=fila_dat, column=col).border = borde
+
+            # ── Anchos de columna ─────────────────────────────────────
+            ws.column_dimensions["A"].width = 6
+            ws.column_dimensions["B"].width = 12
+            ws.column_dimensions["C"].width = 45
+            ws.column_dimensions["D"].width = 16
+            ws.column_dimensions["E"].width = 12
+            ws.column_dimensions["F"].width = 14
+
+            for fila in range(fila_hdr, fila_dat + 1):
+                ws.row_dimensions[fila].height = 20
+            ws.row_dimensions[1].height = 30
+            ws.row_dimensions[5].height = 28
+
+            # ── GRÁFICA DE BARRAS (openpyxl) ──────────────────────────
+            ws_graf = wb.create_sheet(title="Datos Gráfica")
+            ws_graf["A1"] = "Material"
+            ws_graf["B1"] = "Consumo"
+
+            LIMITE_GRAF = 15
+            for i, (nom, val) in enumerate(
+                    datos_graf[:LIMITE_GRAF], 2):
+                ws_graf.cell(row=i, column=1, value=nom)
+                ws_graf.cell(row=i, column=2, value=val)
+
+            n_datos = min(len(datos_graf), LIMITE_GRAF)
+
+            chart             = BarChart()
+            chart.type        = "bar"
+            chart.grouping    = "clustered"
+            chart.title       = titulo_rep
+            chart.y_axis.title = "Material"
+            chart.x_axis.title = "Cantidad (Pzas)"
+            chart.style       = 10
+            chart.width       = 25
+            chart.height      = max(10, n_datos * 0.9)
+
+            data_ref = Reference(
+                ws_graf,
+                min_col=2, min_row=1,
+                max_col=2, max_row=n_datos + 1)
+            cats_ref = Reference(
+                ws_graf,
+                min_col=1, min_row=2,
+                max_row=n_datos + 1)
+
+            chart.add_data(data_ref, titles_from_data=True)
+            chart.set_categories(cats_ref)
+            chart.series[0].graphicalProperties.solidFill = hex_prim
+
+            ws.add_chart(chart, f"A{fila_dat + 3}")
+
+            # ── Guardar ───────────────────────────────────────────────
+            wb.save(ruta)
+            messagebox.showinfo(
+                "✅  Exportado",
+                f"Reporte guardado correctamente:\n{ruta}",
+                parent=self.root)
+            os.startfile(ruta)
+
+        except PermissionError:
+            messagebox.showwarning(
+                "Archivo abierto",
+                "No se pudo guardar.\n"
+                "El archivo está abierto en Excel.\n"
+                "Ciérralo e intenta de nuevo.",
+                parent=self.root)
+        except Exception as e:
+            messagebox.showerror(
+                "Error al exportar",
+                f"No se pudo generar el archivo:\n{e}",
+                parent=self.root)
+            
     def tiene_permiso(self, accion):
         """
         Verifica si el usuario actual tiene permiso para una acción específica.
@@ -3349,6 +5529,9 @@ if __name__ == "__main__":
     tamano_fuente = 10 
 
     app.style.theme_use(tema_guardado)
+    # Aplicar estilos completos del tema
+    tema_completo = GestorTemas.get_tema_actual(db_temp)
+    GestorTemas.aplicar_estilos_completos(app, tema_completo)
     
     # 5. APLICAR FUENTE
     estilo = ttk.Style()
@@ -3384,14 +5567,5 @@ if __name__ == "__main__":
         except Exception as e:
             messagebox.showerror("Error", f"Error iniciando Login: {e}")
 
-    # 7. EJECUCIÓN DEL SPLASH -> LOGIN
-    if 'mostrar_splash_epico' in globals():
-        try:
-            mostrar_splash_epico(db_temp, mostrar_login)
-        except Exception as e:
-            print(f"Error en splash: {e}")
-            mostrar_login()
-    else:
-        mostrar_login()
-
+    mostrar_login()
     app.mainloop()
