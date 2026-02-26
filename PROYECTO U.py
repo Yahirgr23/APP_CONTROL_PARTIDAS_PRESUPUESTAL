@@ -1586,9 +1586,10 @@ class SistemaInventario:
 
         # Validar cantidad
         try:
-            cantidad = float(self.ent_cant_sal.get())
-            if cantidad <= 0:
+            cantidad_raw = float(self.ent_cant_sal.get())
+            if cantidad_raw <= 0:
                 raise ValueError
+            cantidad = int(cantidad_raw) if cantidad_raw == int(cantidad_raw) else cantidad_raw
         except:
             messagebox.showerror("Error", "Ingresa una cantidad válida.")
             return
@@ -1639,11 +1640,12 @@ class SistemaInventario:
         for i in self.tree_carrito.get_children():
             self.tree_carrito.delete(i)
         for item in self._carrito:
+            cant_fmt  = int(item['cantidad']) if item['cantidad'] == int(item['cantidad']) else item['cantidad']
+            stock_fmt = int(item['stock'])    if item['stock']    == int(item['stock'])    else item['stock']
             self.tree_carrito.insert(
                 "", END,
-                values=(item['material'],
-                        item['cantidad'],
-                        item['stock']))
+                values=(item['material'], cant_fmt, stock_fmt)
+            )
 
     def procesar_salida_multiple(self):
         """
@@ -1887,7 +1889,8 @@ class SistemaInventario:
         filas = self.db.consultar(sql, tuple(params))
         for f in filas:
             tag = "BAJO" if f['stock'] <= 2 else ""
-            self.tree_inv.insert("", END, values=(f['id'], f['partida'], f['material'], f['stock']), tags=(tag,))
+            stock_fmt = int(f['stock']) if f['stock'] == int(f['stock']) else f['stock']
+            self.tree_inv.insert("", END, values=(f['id'], f['partida'], f['material'], stock_fmt), tags=(tag,))
 
     def agregar_material(self):
         partida = self.cb_partida.get()
@@ -1986,20 +1989,98 @@ class SistemaInventario:
 
     # --- PESTAÑA AUDITORIA (KARDEX) ---
     def setup_tab_auditoria(self):
+        # 1. BARRA DE FILTROS SUPERIOR
         fr_top = ttk.Frame(self.tab_audit, padding=10)
         fr_top.pack(fill=X)
-        
-        ttk.Label(fr_top, text="Buscar Material:").pack(side=LEFT)
-        self.cb_kardex_mat = ttk.Combobox(fr_top, width=40)
-        self.cb_kardex_mat.pack(side=LEFT, padx=5)
-        
-        ttk.Button(fr_top, text="Generar Kardex", command=self.generar_kardex).pack(side=LEFT)
-        ttk.Button(fr_top, text="💾 Exportar Excel", bootstyle="success-outline", command=self.exportar_excel_kardex).pack(side=RIGHT)
-        
-        self.tree_kardex = ttk.Treeview(self.tab_audit, columns=("FECHA", "MOVIMIENTO", "CANT", "SALDO"), show="headings")
-        self.tree_kardex.heading("FECHA", text="Fecha"); self.tree_kardex.heading("MOVIMIENTO", text="Movimiento")
-        self.tree_kardex.heading("CANT", text="Cant"); self.tree_kardex.heading("SALDO", text="Saldo")
-        self.tree_kardex.pack(fill=BOTH, expand=True, pady=10)
+
+        ttk.Label(fr_top, text="Mes:").pack(side=LEFT)
+        self.cb_mes_k = ttk.Combobox(
+            fr_top,
+            values=[str(i) for i in range(1, 13)],
+            width=3, state="readonly")
+        self.cb_mes_k.current(datetime.now().month - 1)
+        self.cb_mes_k.pack(side=LEFT, padx=5)
+
+        ttk.Label(fr_top, text="Año:").pack(side=LEFT)
+        self.ent_anio_k = ttk.Entry(fr_top, width=6)
+        self.ent_anio_k.insert(0, str(datetime.now().year))
+        self.ent_anio_k.pack(side=LEFT, padx=5)
+
+        ttk.Label(fr_top, text="Filtrar Partida:").pack(side=LEFT, padx=(15, 5))
+        self.cb_partida_k = ttk.Combobox(fr_top, state="readonly", width=15)
+        self.cb_partida_k.pack(side=LEFT)
+
+        ttk.Button(
+            fr_top,
+            text="🔍 Generar Vista Previa",
+            bootstyle="primary",
+            command=self.generar_vista_anexo_c
+        ).pack(side=LEFT, padx=15)
+
+        ttk.Button(
+            fr_top,
+            text="💾 Exportar Excel (Anexo C)",
+            bootstyle="success",
+            command=self.exportar_excel_anexo_c
+        ).pack(side=LEFT)
+
+        # ── NUEVO BOTÓN: Reporte de movimientos por fecha ─────────────
+        ttk.Separator(fr_top, orient=VERTICAL).pack(
+            side=LEFT, fill=Y, padx=15)
+
+        ttk.Button(
+            fr_top,
+            text="📋 Reporte por Rango de Fechas",
+            bootstyle="warning",
+            command=self.abrir_reporte_movimientos
+        ).pack(side=LEFT)
+
+        # 2. TABLA TIPO EXCEL (Treeview complejo con scroll doble)
+        fr_tabla = ttk.Frame(self.tab_audit)
+        fr_tabla.pack(fill=BOTH, expand=True, pady=5)
+
+        sc_y = ttk.Scrollbar(fr_tabla, orient=VERTICAL)
+        sc_x = ttk.Scrollbar(fr_tabla, orient=HORIZONTAL)
+
+        dias = [str(d) for d in range(1, 32)]
+        cols = (["NP", "UNIDAD", "DESC", "FACTURA", "EX_ANT", "RECIBIDOS"]
+                + dias
+                + ["TOTAL_SAL", "EX_ACT"])
+
+        self.tree_kardex = ttk.Treeview(
+            fr_tabla, columns=cols, show="headings",
+            yscrollcommand=sc_y.set,
+            xscrollcommand=sc_x.set,
+            selectmode="browse")
+
+        sc_y.config(command=self.tree_kardex.yview)
+        sc_y.pack(side=RIGHT, fill=Y)
+        sc_x.config(command=self.tree_kardex.xview)
+        sc_x.pack(side=BOTTOM, fill=X)
+        self.tree_kardex.pack(side=LEFT, fill=BOTH, expand=True)
+
+        # Encabezados
+        self.tree_kardex.heading("NP",        text="N.P.")
+        self.tree_kardex.column( "NP",        width=35,  stretch=NO)
+        self.tree_kardex.heading("UNIDAD",    text="UNIDAD")
+        self.tree_kardex.column( "UNIDAD",    width=40,  stretch=NO)
+        self.tree_kardex.heading("DESC",      text="DESCRIPCIÓN")
+        self.tree_kardex.column( "DESC",      width=200, minwidth=150)
+        self.tree_kardex.heading("FACTURA",   text="FACTURA")
+        self.tree_kardex.column( "FACTURA",   width=80)
+        self.tree_kardex.heading("EX_ANT",    text="EXISTENCIA ANTERIOR")
+        self.tree_kardex.column( "EX_ANT",    width=50,  anchor=CENTER)
+        self.tree_kardex.heading("RECIBIDOS", text="ENTRADA")
+        self.tree_kardex.column( "RECIBIDOS", width=50,  anchor=CENTER)
+
+        for d in dias:
+            self.tree_kardex.heading(d, text=d)
+            self.tree_kardex.column( d, width=25, stretch=NO, anchor=CENTER)
+
+        self.tree_kardex.heading("TOTAL_SAL", text="TOTAL SALIDA")
+        self.tree_kardex.column( "TOTAL_SAL", width=50, anchor=CENTER)
+        self.tree_kardex.heading("EX_ACT",    text="ACT.")
+        self.tree_kardex.column( "EX_ACT",    width=50, anchor=CENTER)
 
     def generar_kardex(self):
         mat = self.cb_kardex_mat.get()
@@ -3202,63 +3283,7 @@ class SistemaInventario:
 
         # --- GUARDAR ---
         
-    def setup_tab_auditoria(self):
-        # 1. BARRA DE FILTROS SUPERIOR
-        fr_top = ttk.Frame(self.tab_audit, padding=10)
-        fr_top.pack(fill=X)
-        
-        ttk.Label(fr_top, text="Mes:").pack(side=LEFT)
-        self.cb_mes_k = ttk.Combobox(fr_top, values=[str(i) for i in range(1, 13)], width=3, state="readonly")
-        self.cb_mes_k.current(datetime.now().month - 1)
-        self.cb_mes_k.pack(side=LEFT, padx=5)
-
-        ttk.Label(fr_top, text="Año:").pack(side=LEFT)
-        self.ent_anio_k = ttk.Entry(fr_top, width=6)
-        self.ent_anio_k.insert(0, str(datetime.now().year))
-        self.ent_anio_k.pack(side=LEFT, padx=5)
-
-        ttk.Label(fr_top, text="Filtrar Partida:").pack(side=LEFT, padx=(15, 5))
-        self.cb_partida_k = ttk.Combobox(fr_top, state="readonly", width=15)
-        self.cb_partida_k.pack(side=LEFT)
-        # Se llena con self.actualizar_combos()
-
-        ttk.Button(fr_top, text="🔍 Generar Vista Previa", bootstyle="primary", command=self.generar_vista_anexo_c).pack(side=LEFT, padx=15)
-        ttk.Button(fr_top, text="💾 Exportar Excel (Anexo C)", bootstyle="success", command=self.exportar_excel_anexo_c).pack(side=RIGHT)
-
-        # 2. TABLA TIPO EXCEL (Treeview Complejo)
-        fr_tabla = ttk.Frame(self.tab_audit)
-        fr_tabla.pack(fill=BOTH, expand=True, pady=5)
-
-        # Scrollbars dobles
-        sc_y = ttk.Scrollbar(fr_tabla, orient=VERTICAL)
-        sc_x = ttk.Scrollbar(fr_tabla, orient=HORIZONTAL)
-
-        # Columnas: NP, UNIDAD, DESC, FACTURA, EX_ANT, RECIBIDOS, 1..31, TOTAL, EX_ACT
-        dias = [str(d) for d in range(1, 32)]
-        cols = ["NP", "UNIDAD", "DESC", "FACTURA", "EX_ANT", "RECIBIDOS"] + dias + ["TOTAL_SAL", "EX_ACT"]
-        
-        self.tree_kardex = ttk.Treeview(fr_tabla, columns=cols, show="headings", 
-                                        yscrollcommand=sc_y.set, xscrollcommand=sc_x.set, selectmode="browse")
-        
-        sc_y.config(command=self.tree_kardex.yview); sc_y.pack(side=RIGHT, fill=Y)
-        sc_x.config(command=self.tree_kardex.xview); sc_x.pack(side=BOTTOM, fill=X)
-        self.tree_kardex.pack(side=LEFT, fill=BOTH, expand=True)
-
-        # Configurar Encabezados
-        self.tree_kardex.heading("NP", text="N.P."); self.tree_kardex.column("NP", width=35, stretch=NO)
-        self.tree_kardex.heading("UNIDAD", text="U."); self.tree_kardex.column("UNIDAD", width=40, stretch=NO)
-        self.tree_kardex.heading("DESC", text="DESCRIPCIÓN"); self.tree_kardex.column("DESC", width=200, minwidth=150)
-        self.tree_kardex.heading("FACTURA", text="FACTURA"); self.tree_kardex.column("FACTURA", width=80)
-        self.tree_kardex.heading("EX_ANT", text="E.ANT"); self.tree_kardex.column("EX_ANT", width=50, anchor=CENTER)
-        self.tree_kardex.heading("RECIBIDOS", text="ENT."); self.tree_kardex.column("RECIBIDOS", width=50, anchor=CENTER)
-        
-        for d in dias:
-            self.tree_kardex.heading(d, text=d)
-            self.tree_kardex.column(d, width=25, stretch=NO, anchor=CENTER)
-            
-        self.tree_kardex.heading("TOTAL_SAL", text="T.SAL"); self.tree_kardex.column("TOTAL_SAL", width=50, anchor=CENTER)
-        self.tree_kardex.heading("EX_ACT", text="ACT."); self.tree_kardex.column("EX_ACT", width=50, anchor=CENTER)
-
+    
     def abrir_editor_temas(self):
         top = tk.Toplevel(self.root)
         top.title("🎨 Personalización de Temas")
@@ -3446,84 +3471,572 @@ class SistemaInventario:
                 command=guardar_tema_personalizado).pack(fill=X, pady=20, ipady=6)
 
     def calcular_datos_kardex(self):
+        """
+        Calcula los datos para el Anexo C.
+        CORRECCIÓN: Incluye explícitamente 'ALTA INICIAL' como entrada
+        para que las facturas iniciales aparezcan correctamente en el Excel.
+        """
         try:
-            mes = int(self.cb_mes_k.get())
+            mes  = int(self.cb_mes_k.get())
             anio = int(self.ent_anio_k.get())
             partida_sel = self.cb_partida_k.get()
-        except: messagebox.showerror("Error", "Verifica Mes y Año"); return None
+        except:
+            messagebox.showerror("Error", "Verifica Mes y Año")
+            return None
 
         inicio_mes = datetime(anio, mes, 1)
         ultimo_dia = calendar.monthrange(anio, mes)[1]
-        fin_mes = datetime(anio, mes, ultimo_dia, 23, 59, 59)
+        fin_mes    = datetime(anio, mes, ultimo_dia, 23, 59, 59)
 
-        # Seleccionar materiales (Filtrado o todos)
-        sql = "SELECT id, partida, material FROM inventario"
+        # Seleccionar materiales (filtrado o todos)
+        sql    = "SELECT id, partida, material FROM inventario"
         params = []
         if partida_sel and partida_sel != "TODAS":
             sql += " WHERE partida = ?"
             params.append(partida_sel)
         sql += " ORDER BY partida, material"
-        
-        materiales = self.db.consultar(sql, tuple(params))
-        datos_procesados = []
+
+        materiales        = self.db.consultar(sql, tuple(params))
+        datos_procesados  = []
 
         for idx, mat in enumerate(materiales, 1):
             mat_nom = mat['material']
-            
-            # Obtener TODO el historial de este material
-            historial = self.db.consultar("SELECT fecha_hora, tipo, cantidad, factura FROM historial WHERE material = ?", (mat_nom,))
-            
-            ex_ant = 0
-            entradas_mes = 0
-            salidas_dias = {d: 0 for d in range(1, 32)}
-            facturas_mes = set() 
-            
+
+            # Traer todo el historial de este material
+            historial = self.db.consultar(
+                "SELECT fecha_hora, tipo, cantidad, factura "
+                "FROM historial WHERE material = ? ORDER BY id ASC",
+                (mat_nom,)
+            )
+
+            ex_ant        = 0
+            entradas_mes  = 0
+            salidas_dias  = {d: 0 for d in range(1, 32)}
+            facturas_mes  = set()
+
             for h in historial:
-                try: 
-                    # Intentar leer fecha con y sin hora
-                    try: f_obj = datetime.strptime(h['fecha_hora'], "%d/%m/%Y %H:%M")
-                    except: f_obj = datetime.strptime(h['fecha_hora'], "%d/%m/%Y")
-                except: continue
+
+                # ── Parsear fecha ─────────────────────────────────────
+                try:
+                    try:
+                        f_obj = datetime.strptime(h['fecha_hora'], "%d/%m/%Y %H:%M")
+                    except:
+                        f_obj = datetime.strptime(h['fecha_hora'], "%d/%m/%Y")
+                except:
+                    continue
 
                 cant = h['cantidad']
-                tipo = h['tipo'].upper() # Convertimos a mayúsculas para comparar mejor
-                
-                # --- CORRECCIÓN FUERTE: Detectar cualquier tipo de entrada ---
-                # Si dice ENTRADA, HISTORICO (+) o ALTA, es una suma.
-                es_entrada = ("ENTRADA" in tipo or "(+)" in tipo or "ALTA" in tipo)
-                
-                # 1. Movimientos ANTERIORES al mes (Para Saldo Anterior)
+                tipo = (h['tipo'] or "").strip().upper()
+
+                # ── Clasificar movimiento ─────────────────────────────
+                # Cualquier variante de entrada:
+                #   ENTRADA, HISTORICO (+), ALTA, ALTA INICIAL
+                es_entrada = (
+                    "ENTRADA"  in tipo or
+                    "(+)"      in tipo or
+                    "ALTA"     in tipo   # captura ALTA e ALTA INICIAL
+                )
+
+                # ── Antes del mes → va a Existencia Anterior ─────────
                 if f_obj < inicio_mes:
-                    if es_entrada: ex_ant += cant
-                    else: ex_ant -= cant
-                
-                # 2. Movimientos DURANTE el mes
+                    if es_entrada:
+                        ex_ant += cant
+                    else:
+                        ex_ant -= cant
+
+                # ── Durante el mes → entradas y salidas por día ───────
                 elif inicio_mes <= f_obj <= fin_mes:
                     if es_entrada:
                         entradas_mes += cant
-                        # Capturar facturas si existen
-                        if h['factura'] and h['factura'] != "S/F": facturas_mes.add(h['factura'])
+
+                        # Capturar factura (incluye facturas de ALTA INICIAL)
+                        fac = (h['factura'] or "").strip()
+                        if fac and fac.upper() != "S/F":
+                            facturas_mes.add(fac.upper())
+
                     else:
-                        # Todo lo que no sea entrada se considera SALIDA o AJUSTE (-)
+                        # Salida → acumular en el día correspondiente
                         dia = f_obj.day
                         salidas_dias[dia] += cant
-            
-            # Formatear facturas
-            str_facturas = ", ".join(facturas_mes) if facturas_mes else ""
+
+            # Concatenar facturas del mes
+            str_facturas = ", ".join(sorted(facturas_mes)) if facturas_mes else ""
 
             total_sal = sum(salidas_dias.values())
-            
-            # CALCULO FINAL: Anterior + Entradas - Salidas
-            ex_act = (ex_ant + entradas_mes) - total_sal
-            
+            ex_act    = (ex_ant + entradas_mes) - total_sal
+
             row = {
-                "NP": idx, "UNIDAD": "PZA", "DESC": mat_nom, "FACTURA": str_facturas,
-                "EX_ANT": ex_ant, "RECIBIDOS": entradas_mes, "SALIDAS_DIAS": salidas_dias,
-                "TOTAL_SAL": total_sal, "EX_ACT": ex_act, "PARTIDA": mat['partida']
+                "NP":          idx,
+                "UNIDAD":      "PZA",
+                "DESC":        mat_nom,
+                "FACTURA":     str_facturas,
+                "EX_ANT":      ex_ant,
+                "RECIBIDOS":   entradas_mes,
+                "SALIDAS_DIAS":salidas_dias,
+                "TOTAL_SAL":   total_sal,
+                "EX_ACT":      ex_act,
+                "PARTIDA":     mat['partida']
             }
             datos_procesados.append(row)
-            
+
         return datos_procesados, mes, anio, partida_sel
+    
+    def abrir_reporte_movimientos(self):
+        """
+        Ventana para generar un Excel con todas las ENTRADAS (incluye
+        ALTA INICIAL con su factura) y SALIDAS en un rango de fechas.
+        Completamente independiente del Anexo C.
+        """
+        top = tk.Toplevel(self.root)
+        top.title("📋 Reporte de Movimientos por Fecha")
+        self.centrar_ventana_emergente(top, 520, 420)
+        top.grab_set()
+
+        fr = ttk.Frame(top, padding=25)
+        fr.pack(fill=BOTH, expand=True)
+
+        ttk.Label(
+            fr,
+            text="Reporte de Entradas y Salidas",
+            font=("Segoe UI", 14, "bold"),
+            bootstyle="primary"
+        ).pack(pady=(0, 5))
+
+        ttk.Label(
+            fr,
+            text="Genera un Excel detallado con todos los movimientos del periodo.",
+            font=("Segoe UI", 9),
+            foreground="gray"
+        ).pack(pady=(0, 18))
+
+        # ── Rango de fechas ───────────────────────────────────────────
+        fr_fechas = ttk.LabelFrame(
+            fr, text=" 📅 Rango de Fechas ",
+            padding=15, bootstyle="info")
+        fr_fechas.pack(fill=X, pady=(0, 12))
+
+        def crear_fila_fecha(parent, label_txt, dia_def, mes_def, anio_def):
+            """Crea una fila con tres Entry para DD / MM / AAAA"""
+            fr_fila = ttk.Frame(parent)
+            fr_fila.pack(fill=X, pady=4)
+
+            ttk.Label(fr_fila, text=label_txt, width=20).pack(side=LEFT)
+
+            e_dia = ttk.Entry(
+                fr_fila, width=3,
+                justify=CENTER, font=("Segoe UI", 10, "bold"))
+            e_dia.insert(0, dia_def)
+            e_dia.pack(side=LEFT)
+
+            ttk.Label(fr_fila, text=" / ").pack(side=LEFT)
+
+            e_mes = ttk.Entry(
+                fr_fila, width=3,
+                justify=CENTER, font=("Segoe UI", 10, "bold"))
+            e_mes.insert(0, mes_def)
+            e_mes.pack(side=LEFT)
+
+            ttk.Label(fr_fila, text=" / ").pack(side=LEFT)
+
+            e_anio = ttk.Entry(
+                fr_fila, width=5,
+                justify=CENTER, font=("Segoe UI", 10, "bold"))
+            e_anio.insert(0, anio_def)
+            e_anio.pack(side=LEFT)
+
+            # Tab entre campos
+            e_dia.bind( "<Tab>", lambda e: (e_mes.focus_set(),  "break")[1])
+            e_mes.bind( "<Tab>", lambda e: (e_anio.focus_set(), "break")[1])
+
+            return e_dia, e_mes, e_anio
+
+        hoy = datetime.now()
+        e_dia_i, e_mes_i, e_anio_i = crear_fila_fecha(
+            fr_fechas, "Desde (DD/MM/AAAA):",
+            "01",
+            str(hoy.month).zfill(2),
+            str(hoy.year)
+        )
+        e_dia_f, e_mes_f, e_anio_f = crear_fila_fecha(
+            fr_fechas, "Hasta (DD/MM/AAAA):",
+            str(hoy.day).zfill(2),
+            str(hoy.month).zfill(2),
+            str(hoy.year)
+        )
+
+        # ── Filtro opcional de partida ─────────────────────────────────
+        fr_opt = ttk.LabelFrame(
+            fr, text=" Filtro Opcional ",
+            padding=12, bootstyle="secondary")
+        fr_opt.pack(fill=X, pady=(0, 18))
+
+        fr_part_row = ttk.Frame(fr_opt)
+        fr_part_row.pack(fill=X)
+
+        ttk.Label(fr_part_row, text="Partida:").pack(side=LEFT)
+
+        rows_p  = self.db.consultar(
+            "SELECT valor FROM catalogos WHERE tipo='PARTIDA' ORDER BY valor ASC")
+        lista_p = ["TODAS"] + [r['valor'] for r in rows_p]
+
+        cb_part = ttk.Combobox(
+            fr_part_row, values=lista_p,
+            state="readonly", width=22)
+        cb_part.current(0)
+        cb_part.pack(side=LEFT, padx=10)
+
+        # ── Lógica de generación ───────────────────────────────────────
+        def generar_excel():
+            # Validar fechas
+            try:
+                fecha_ini = datetime(
+                    int(e_anio_i.get()), int(e_mes_i.get()), int(e_dia_i.get()))
+                fecha_fin = datetime(
+                    int(e_anio_f.get()), int(e_mes_f.get()), int(e_dia_f.get()),
+                    23, 59, 59)
+            except ValueError as err:
+                messagebox.showerror(
+                    "Fecha inválida",
+                    f"Revisa los valores ingresados.\n\n{err}",
+                    parent=top)
+                top.lift()
+                return
+
+            if fecha_ini > fecha_fin:
+                messagebox.showerror(
+                    "Error de fechas",
+                    "La fecha inicial no puede ser mayor que la final.",
+                    parent=top)
+                top.lift()
+                return
+
+            partida_filtro = cb_part.get()
+
+            # Traer TODO el historial
+            filas = self.db.consultar(
+                "SELECT fecha_hora, tipo, partida, material, "
+                "cantidad, factura, destino, responsable, entrego "
+                "FROM historial ORDER BY id ASC"
+            )
+
+            entradas = []
+            salidas  = []
+
+            for f in filas:
+                # Parsear fecha
+                try:
+                    try:
+                        f_obj = datetime.strptime(f['fecha_hora'], "%d/%m/%Y %H:%M")
+                    except:
+                        f_obj = datetime.strptime(f['fecha_hora'], "%d/%m/%Y")
+                except:
+                    continue
+
+                # Filtro de rango
+                if not (fecha_ini <= f_obj <= fecha_fin):
+                    continue
+
+                # Filtro de partida
+                if partida_filtro != "TODAS" and f['partida'] != partida_filtro:
+                    continue
+
+                tipo = (f['tipo'] or "").strip().upper()
+                cant = f['cantidad']
+
+                # Formatear entero si aplica
+                cant_fmt = (
+                    int(cant)
+                    if isinstance(cant, float) and cant == int(cant)
+                    else cant
+                )
+
+                es_entrada = (
+                    "ENTRADA" in tipo or
+                    "(+)"     in tipo or
+                    "ALTA"    in tipo
+                )
+
+                if es_entrada:
+                    entradas.append({
+                        "FECHA":       f['fecha_hora'],
+                        "TIPO":        f['tipo'],
+                        "PARTIDA":     f['partida'] or "",
+                        "MATERIAL":    f['material'],
+                        "CANTIDAD":    cant_fmt,
+                        "FACTURA":     (f['factura'] or "S/F").upper(),
+                        "RESPONSABLE": f['responsable'] or ""
+                    })
+                else:
+                    salidas.append({
+                        "FECHA":       f['fecha_hora'],
+                        "TIPO":        f['tipo'],
+                        "PARTIDA":     f['partida'] or "",
+                        "MATERIAL":    f['material'],
+                        "CANTIDAD":    cant_fmt,
+                        "DESTINO":     f['destino'] or "",
+                        "SOLICITA":    f['responsable'] or "",
+                        "ENTREGO":     f['entrego'] or "",
+                        "FOLIO":       f['factura'] or ""
+                    })
+
+            if not entradas and not salidas:
+                messagebox.showwarning(
+                    "Sin datos",
+                    "No se encontraron movimientos en el periodo seleccionado.",
+                    parent=top)
+                top.lift()
+                return
+
+            # Pedir ruta de guardado
+            ruta = filedialog.asksaveasfilename(
+                parent=top,
+                defaultextension=".xlsx",
+                filetypes=[("Excel", "*.xlsx")],
+                initialfile=(
+                    f"Movimientos_"
+                    f"{fecha_ini.strftime('%d%m%Y')}_"
+                    f"{fecha_fin.strftime('%d%m%Y')}.xlsx"
+                )
+            )
+            if not ruta:
+                top.lift()
+                return
+
+            # ── Construir Excel ───────────────────────────────────────
+            from openpyxl import Workbook
+            from openpyxl.styles import (
+                Font, Alignment, PatternFill, Border,
+                Side as ExcelSide)
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Movimientos"
+
+            # Estilos
+            thin   = ExcelSide(border_style="thin",   color="CCCCCC")
+            medium = ExcelSide(border_style="medium",  color="888888")
+            borde  = Border(top=thin, left=thin, right=thin, bottom=thin)
+            borde_medio = Border(
+                top=medium, left=medium, right=medium, bottom=medium)
+            centro = Alignment(horizontal="center", vertical="center")
+            izq    = Alignment(
+                horizontal="left", vertical="center", wrap_text=True)
+
+            HEX_AZUL  = "1F4E79"
+            HEX_VERDE = "1B5E20"
+            HEX_ROJO  = "7B1010"
+            HEX_GRIS  = "F5F5F5"
+
+            fill_azul  = PatternFill(fill_type="solid", fgColor=HEX_AZUL)
+            fill_verde = PatternFill(fill_type="solid", fgColor=HEX_VERDE)
+            fill_rojo  = PatternFill(fill_type="solid", fgColor=HEX_ROJO)
+            fill_v_sub = PatternFill(fill_type="solid", fgColor="2E7D32")
+            fill_r_sub = PatternFill(fill_type="solid", fgColor="C62828")
+            fill_ent   = PatternFill(fill_type="solid", fgColor="F1F8E9")
+            fill_sal   = PatternFill(fill_type="solid", fgColor="FFF3F3")
+            fill_tot_v = PatternFill(fill_type="solid", fgColor="E8F5E9")
+            fill_tot_r = PatternFill(fill_type="solid", fgColor="FFEBEE")
+
+            def celda(ws, row, col, valor, fuente=None, alin=None,
+                      relleno=None, brd=None):
+                c = ws.cell(row=row, column=col, value=valor)
+                if fuente:  c.font      = fuente
+                if alin:    c.alignment = alin
+                if relleno: c.fill      = relleno
+                if brd:     c.border    = brd
+                return c
+
+            # ── Encabezado institucional ──────────────────────────────
+            h1 = self.db.get_config("HEADER_L1") or "INSTITUCIÓN"
+            h2 = self.db.get_config("HEADER_L2") or "SUBDIRECCIÓN"
+            h4 = self.db.get_config("HEADER_L4") or "DEPARTAMENTO"
+
+            str_ini = fecha_ini.strftime("%d/%m/%Y")
+            str_fin = fecha_fin.strftime("%d/%m/%Y")
+
+            for fila_h, texto, fs in [
+                (1, h1, 13), (2, h2, 10), (3, h4, 10)
+            ]:
+                ws.merge_cells(f"A{fila_h}:I{fila_h}")
+                celda(ws, fila_h, 1, texto,
+                      fuente=Font(bold=True, size=fs, color=HEX_AZUL),
+                      alin=centro)
+
+            ws.row_dimensions[1].height = 22
+            ws.row_dimensions[4].height = 6   # separador
+
+            # Título principal
+            ws.merge_cells("A5:I5")
+            celda(ws, 5, 1,
+                  f"REPORTE DE MOVIMIENTOS  —  {str_ini}  al  {str_fin}",
+                  fuente=Font(bold=True, size=13, color="FFFFFF"),
+                  alin=centro, relleno=fill_azul)
+            ws.row_dimensions[5].height = 24
+
+            if partida_filtro != "TODAS":
+                ws.merge_cells("A6:I6")
+                celda(ws, 6, 1,
+                      f"Filtrado por Partida: {partida_filtro}",
+                      fuente=Font(italic=True, size=10, color="555555"),
+                      alin=centro)
+
+            fila_act = 8
+
+            # ── SECCIÓN ENTRADAS ──────────────────────────────────────
+            ws.merge_cells(f"A{fila_act}:G{fila_act}")
+            celda(ws, fila_act, 1,
+                  f"ENTRADAS / ALTAS DE MATERIAL  ({len(entradas)} registros)",
+                  fuente=Font(bold=True, size=11, color="FFFFFF"),
+                  alin=centro, relleno=fill_verde)
+            ws.row_dimensions[fila_act].height = 20
+            fila_act += 1
+
+            # Cabecera entradas
+            hdrs_ent = [
+                "FECHA", "TIPO DE MOVIMIENTO", "PARTIDA",
+                "DESCRIPCIÓN DEL MATERIAL", "CANTIDAD",
+                "FACTURA / REFERENCIA", "RESPONSABLE"
+            ]
+            for col, h in enumerate(hdrs_ent, 1):
+                celda(ws, fila_act, col, h,
+                      fuente=Font(bold=True, size=9, color="FFFFFF"),
+                      alin=centro, relleno=fill_v_sub, brd=borde)
+            ws.row_dimensions[fila_act].height = 18
+            fila_act += 1
+
+            total_ent = 0
+            for i, e in enumerate(entradas):
+                relleno_e = fill_ent if i % 2 == 0 else None
+                datos = [
+                    e["FECHA"], e["TIPO"], e["PARTIDA"],
+                    e["MATERIAL"], e["CANTIDAD"],
+                    e["FACTURA"], e["RESPONSABLE"]
+                ]
+                for col, val in enumerate(datos, 1):
+                    celda(ws, fila_act, col, val,
+                          fuente=Font(size=9),
+                          alin=izq if col == 4 else centro,
+                          relleno=relleno_e, brd=borde)
+                ws.row_dimensions[fila_act].height = 16
+                total_ent += (
+                    e["CANTIDAD"]
+                    if isinstance(e["CANTIDAD"], (int, float)) else 0
+                )
+                fila_act += 1
+
+            # Fila total entradas
+            ws.merge_cells(f"A{fila_act}:D{fila_act}")
+            celda(ws, fila_act, 1, "TOTAL DE UNIDADES INGRESADAS:",
+                  fuente=Font(bold=True, size=10, color=HEX_VERDE),
+                  alin=Alignment(horizontal="right", vertical="center"),
+                  relleno=fill_tot_v, brd=borde)
+            celda(ws, fila_act, 5,
+                  int(total_ent) if total_ent == int(total_ent) else total_ent,
+                  fuente=Font(bold=True, size=11, color=HEX_VERDE),
+                  alin=centro, relleno=fill_tot_v, brd=borde)
+            ws.row_dimensions[fila_act].height = 18
+            fila_act += 2   # separador entre secciones
+
+            # ── SECCIÓN SALIDAS ───────────────────────────────────────
+            ws.merge_cells(f"A{fila_act}:I{fila_act}")
+            celda(ws, fila_act, 1,
+                  f"SALIDAS DE MATERIAL  ({len(salidas)} registros)",
+                  fuente=Font(bold=True, size=11, color="FFFFFF"),
+                  alin=centro, relleno=fill_rojo)
+            ws.row_dimensions[fila_act].height = 20
+            fila_act += 1
+
+            # Cabecera salidas
+            hdrs_sal = [
+                "FECHA", "TIPO DE MOVIMIENTO", "PARTIDA",
+                "DESCRIPCIÓN DEL MATERIAL", "CANTIDAD",
+                "ÁREA / DESTINO", "SOLICITA", "ENTREGÓ", "FOLIO / VALE"
+            ]
+            for col, h in enumerate(hdrs_sal, 1):
+                celda(ws, fila_act, col, h,
+                      fuente=Font(bold=True, size=9, color="FFFFFF"),
+                      alin=centro, relleno=fill_r_sub, brd=borde)
+            ws.row_dimensions[fila_act].height = 18
+            fila_act += 1
+
+            total_sal = 0
+            for i, s in enumerate(salidas):
+                relleno_s = fill_sal if i % 2 == 0 else None
+                datos = [
+                    s["FECHA"], s["TIPO"], s["PARTIDA"],
+                    s["MATERIAL"], s["CANTIDAD"],
+                    s["DESTINO"], s["SOLICITA"],
+                    s["ENTREGO"], s["FOLIO"]
+                ]
+                for col, val in enumerate(datos, 1):
+                    celda(ws, fila_act, col, val,
+                          fuente=Font(size=9),
+                          alin=izq if col == 4 else centro,
+                          relleno=relleno_s, brd=borde)
+                ws.row_dimensions[fila_act].height = 16
+                total_sal += (
+                    s["CANTIDAD"]
+                    if isinstance(s["CANTIDAD"], (int, float)) else 0
+                )
+                fila_act += 1
+
+            # Fila total salidas
+            ws.merge_cells(f"A{fila_act}:D{fila_act}")
+            celda(ws, fila_act, 1, "TOTAL DE UNIDADES SALIDAS:",
+                  fuente=Font(bold=True, size=10, color=HEX_ROJO),
+                  alin=Alignment(horizontal="right", vertical="center"),
+                  relleno=fill_tot_r, brd=borde)
+            celda(ws, fila_act, 5,
+                  int(total_sal) if total_sal == int(total_sal) else total_sal,
+                  fuente=Font(bold=True, size=11, color=HEX_ROJO),
+                  alin=centro, relleno=fill_tot_r, brd=borde)
+            ws.row_dimensions[fila_act].height = 18
+
+            # ── Anchos de columna ─────────────────────────────────────
+            anchos = {
+                "A": 18, "B": 20, "C": 10,
+                "D": 42, "E": 11, "F": 24,
+                "G": 22, "H": 22, "I": 16
+            }
+            for col, w in anchos.items():
+                ws.column_dimensions[col].width = w
+
+            # ── Guardar y abrir ───────────────────────────────────────
+            try:
+                wb.save(ruta)
+                messagebox.showinfo(
+                    "✅ Exportado",
+                    f"Reporte generado correctamente.\n\n"
+                    f"Entradas: {len(entradas)} registros\n"
+                    f"Salidas:  {len(salidas)} registros",
+                    parent=top)
+                top.lift()
+                os.startfile(ruta)
+            except PermissionError:
+                messagebox.showwarning(
+                    "Archivo abierto",
+                    "El archivo está abierto en Excel.\n"
+                    "Ciérralo e intenta de nuevo.",
+                    parent=top)
+                top.lift()
+            except Exception as err:
+                messagebox.showerror("Error al guardar", f"{err}", parent=top)
+                top.lift()
+
+        # ── Botones ───────────────────────────────────────────────────
+        ttk.Button(
+            fr,
+            text="💾  Generar y Exportar Excel",
+            bootstyle="success",
+            command=generar_excel
+        ).pack(fill=X, ipady=7, pady=(0, 6))
+
+        ttk.Button(
+            fr,
+            text="Cerrar",
+            bootstyle="secondary-outline",
+            command=top.destroy
+        ).pack(fill=X)
     
     def generar_vista_anexo_c(self):
         res = self.calcular_datos_kardex()
