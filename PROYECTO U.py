@@ -116,14 +116,14 @@ class GestorBaseDatos:
             factura TEXT,
             destino TEXT,
             responsable TEXT,
-            entrego TEXT
+            entrego TEXT,
+            usuario_sistema TEXT DEFAULT 'SISTEMA'
         );
         CREATE TABLE IF NOT EXISTS catalogos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tipo TEXT,
             valor TEXT
         );
-        -- NUEVA TABLA PARA NOMBRES LARGOS DE PARTIDAS
         CREATE TABLE IF NOT EXISTS partidas_desc (
             codigo TEXT PRIMARY KEY,
             descripcion TEXT
@@ -136,19 +136,22 @@ class GestorBaseDatos:
         try:
             with self.conectar() as conn:
                 conn.executescript(sql_script)
-                # Migraciones previas...
+                # Migraciones previas
                 try: conn.execute("ALTER TABLE inventario ADD COLUMN factura TEXT DEFAULT 'S/F'")
                 except: pass
                 try: conn.execute("ALTER TABLE historial ADD COLUMN factura TEXT DEFAULT ''")
                 except: pass
-                # Lógica Admin...
+                # NUEVA MIGRACIÓN: columna usuario_sistema
+                try: conn.execute("ALTER TABLE historial ADD COLUMN usuario_sistema TEXT DEFAULT 'SISTEMA'")
+                except: pass
+                # Lógica Admin
                 conn.execute("UPDATE usuarios SET rol='ADMIN' WHERE usuario='ADMIN'")
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM usuarios")
                 if cursor.fetchone()[0] == 0:
                     pass_hash = hashlib.sha256("admin".encode()).hexdigest()
                     p_full = '{"crear":1, "entrada":1, "salida":1, "editar":1, "eliminar":1, "catalogos":1, "historico":1, "ajustes":1}'
-                    conn.execute("INSERT INTO usuarios (usuario, password, rol, permisos) VALUES (?, ?, ?, ?)", 
+                    conn.execute("INSERT INTO usuarios (usuario, password, rol, permisos) VALUES (?, ?, ?, ?)",
                                  ("ADMIN", pass_hash, "ADMIN", p_full))
         except Exception as e:
             print(f"Error tablas: {e}")
@@ -685,7 +688,7 @@ class LoginWindow(tk.Toplevel):
         # ── Nota mayúsculas ───────────────────────────────────────────
         tk.Label(
             fr_form,
-            text="⚠  El usuario distingue MAYÚSCULAS de minúsculas",
+            text="",
             font=("Segoe UI", 8),
             fg="#AAAAAA", bg="#FFFFFF"
         ).pack(pady=(0, 20))
@@ -872,7 +875,16 @@ class LoginWindow(tk.Toplevel):
             font=("Segoe UI", 8),
             fill="#AACCEE",
             anchor="center")
-        
+    def _toggle_pass(self):
+        """Muestra u oculta la contraseña al pulsar el ojo"""
+        self._ver_pass = not self._ver_pass
+        if self._ver_pass:
+            self.entry_pass.config(show="")
+            self.btn_ojo.config(fg=self.C_PRIM)
+        else:
+            self.entry_pass.config(show="●")
+            self.btn_ojo.config(fg="#AAAAAA")
+            
     def _animar_entrada(self):
         """Efecto de aparición suave (fade-in simulado con alpha)"""
         try:
@@ -993,28 +1005,39 @@ class SistemaInventario:
         # Empaquetamos el notebook después del header
         self.notebook.pack(fill=BOTH, expand=True, padx=10, pady=10)
         
-        # Crear pestañas en el nuevo orden
-        self.tab_inv = ttk.Frame(self.notebook, padding=10)
-        self.tab_audit = ttk.Frame(self.notebook, padding=10)
+       # Crear pestañas base
+        self.tab_inv     = ttk.Frame(self.notebook, padding=10)
+        self.tab_audit   = ttk.Frame(self.notebook, padding=10)
         self.tab_consumo = ttk.Frame(self.notebook, padding=10)
-        self.tab_hist = ttk.Frame(self.notebook, padding=10)
-        
-        # NUEVO ORDEN DE PESTAÑAS PRINCIPALES
-        self.notebook.add(self.tab_inv, text="📦 INVENTARIO")
-        self.notebook.add(self.tab_audit, text="📑 DATOS")
-        self.notebook.add(self.tab_consumo, text="📈 CONSUMO")
-        self.notebook.add(self.tab_hist, text="🕒 HISTORIAL")
-        
-        # Construir contenido de pestañas
-        self.setup_tab_inventario()
-        self.setup_tab_auditoria()
-        self.setup_tab_consumo() 
-        self.setup_tab_historial()
-        
+        self.tab_hist    = ttk.Frame(self.notebook, padding=10)
+
+        rol_actual = self.usuario.get('rol', 'OPERADOR')
+
+        if rol_actual == 'SOLO LECTURA':
+            # Solo lectura: únicamente la pestaña de inventario (solo vista)
+            self.notebook.add(self.tab_inv, text="📦 INVENTARIO")
+            self.setup_tab_inventario()
+
+        else:
+            # Cualquier otro rol: acceso completo según permisos
+            self.notebook.add(self.tab_inv,     text="📦 INVENTARIO")
+            self.notebook.add(self.tab_audit,   text="📑 DATOS")
+            self.notebook.add(self.tab_consumo, text="📈 CONSUMO")
+            self.notebook.add(self.tab_hist,    text="🕒 HISTORIAL")
+
+            self.setup_tab_inventario()
+            self.setup_tab_auditoria()
+            self.setup_tab_consumo()
+            self.setup_tab_historial()
+
         # Carga inicial de datos
         self.actualizar_combos()
         self.cargar_tabla_inventario()
-        self.cargar_tabla_historial()
+
+        # Solo cargar historial si la pestaña existe
+        if rol_actual != 'SOLO LECTURA':
+            self.cargar_tabla_historial()
+
         self.datos_kardex_procesados = []
 
    
@@ -1230,341 +1253,486 @@ class SistemaInventario:
                       font=("Segoe UI Emoji", 40)).pack()
 
         # Separador + Botón configuración
-        ttk.Separator(fr_right, orient=VERTICAL).pack(
-            side=LEFT, fill=Y, padx=8)
-
-        btn_conf = ttk.Button(fr_right, text="⚙️",
-                              bootstyle="link",
-                              command=self.abrir_menu_admin)
-        btn_conf.pack(side=LEFT, padx=5)
-        try:
-            for child in btn_conf.winfo_children():
-                child.configure(font=("Segoe UI Emoji", 28))
-        except:
-            pass
+        if self.usuario.get('rol', '') != 'SOLO LECTURA':
+            ttk.Separator(fr_right, orient=VERTICAL).pack(
+                side=LEFT, fill=Y, padx=8
+            )
+            btn_conf = ttk.Button(
+                fr_right, text="⚙️",
+                bootstyle="link",
+                command=self.abrir_menu_admin
+            )
+            btn_conf.pack(side=LEFT, padx=5)
+            try:
+                for child in btn_conf.winfo_children():
+                    child.configure(font=("Segoe UI Emoji", 28))
+            except:
+                pass
 
     def setup_autocomplete(self, combo, lista_completa):
-        """Filtra la lista internamente sin bloquear ni interrumpir la escritura"""
-        
-        def al_escribir(event):
-            # Si son teclas especiales, no hacemos nada
-            if event.keysym in ['Up', 'Down', 'Return', 'Tab', 'Left', 'Right']:
+        """
+        Autocomplete:
+        - Filtra en tiempo real mientras escribes
+        - Abre automáticamente al hacer clic con la lista completa
+        - NO se reabre después de seleccionar
+        """
+        self._seleccionando = False
+
+        def filtrar(event=None):
+            if event and event.keysym in ('Up', 'Down', 'Return', 'Tab',
+                                           'Left', 'Right', 'Escape'):
                 return
-
             texto = combo.get().strip().upper()
-
             if texto == "":
-                # Si está vacío, restauramos toda la lista
                 combo['values'] = lista_completa
             else:
-                # Filtrar lista (Silenciosamente)
-                filtrados = [x for x in lista_completa if texto in str(x).upper()]
+                filtrados = [x for x in lista_completa
+                             if texto in str(x).upper()]
                 combo['values'] = filtrados
-                # NO abrimos la lista automáticamente (evita el bloqueo)
 
-        # Vinculamos al evento de soltar tecla
-        combo.bind("<KeyRelease>", al_escribir)
-        
+        def al_seleccionar(event=None):
+            """Marca que acabamos de seleccionar para no reabrir"""
+            self._seleccionando = True
+            combo['values'] = lista_completa
+            # Resetear la bandera después de un momento
+            combo.after(300, lambda: setattr(self, '_seleccionando', False))
+
+        def abrir_al_click(event=None):
+            """Abre el dropdown al hacer clic, solo si no acabamos de seleccionar"""
+            if self._seleccionando:
+                return
+            combo['values'] = lista_completa
+            combo.after(100, lambda: combo.event_generate('<Down>'))
+
+        combo.bind('<KeyRelease>',         filtrar)
+        combo.bind('<Button-1>',           abrir_al_click)
+        combo.bind('<<ComboboxSelected>>', al_seleccionar)
+
         # Carga inicial
         combo['values'] = lista_completa
-    # --- REEMPLAZA ESTA FUNCIÓN COMPLETA ---
-    # --- REEMPLAZA ESTA FUNCIÓN COMPLETA (RESTAURACIÓN DE INTERFAZ) ---
-    # --- REEMPLAZA ESTA FUNCIÓN COMPLETA (VERSIÓN ANTI-BLOQUEO) ---
-    # ------------------------------------------------------------------
-    #  INTERFAZ DE INVENTARIO REDISEÑADA (FÁCIL PARA EL USUARIO)
-    # ------------------------------------------------------------------
-    # ══════════════════════════════════════════════════════════════════
-    # REEMPLAZA setup_tab_inventario COMPLETO
-    # ══════════════════════════════════════════════════════════════════
-    def setup_tab_inventario(self):
-        # 1. DIVIDIR LA PANTALLA
-        self.p_izq = ttk.Frame(self.tab_inv, width=570)
-        self.p_izq.pack(side=LEFT, fill=Y, padx=(0, 10))
-        self.p_izq.pack_propagate(False)
 
+    def setup_tab_inventario(self):
+        rol_actual = self.usuario.get('rol', 'OPERADOR')
+        es_solo_lectura = (rol_actual == 'SOLO LECTURA')
+
+        # ── PANEL IZQUIERDO: solo visible si NO es solo lectura ───────
+        if not es_solo_lectura:
+            self.p_izq = ttk.Frame(self.tab_inv, width=570)
+            self.p_izq.pack(side=LEFT, fill=Y, padx=(0, 10))
+            self.p_izq.pack_propagate(False)
+
+            # === Indicador de selección ===
+            fr_info = ttk.LabelFrame(
+                self.p_izq,
+                text=" 📦 Material Seleccionado ",
+                padding=10, bootstyle="secondary"
+            )
+            fr_info.pack(fill=X, pady=(0, 10))
+
+            self.lbl_seleccionado = ttk.Label(
+                fr_info,
+                text="Ninguno (Selecciona en la tabla ➡)",
+                font=("Segoe UI", 11, "bold"),
+                foreground="#E67E22", wraplength=380
+            )
+            self.lbl_seleccionado.pack(anchor=CENTER)
+
+            self.lbl_stock_actual = ttk.Label(
+                fr_info, text="Stock: --",
+                font=("Segoe UI", 10)
+            )
+            self.lbl_stock_actual.pack(anchor=CENTER)
+
+            # === Pestañas de acción ===
+            self.nb_acciones = ttk.Notebook(self.p_izq, bootstyle="primary")
+            self.nb_acciones.pack(fill=BOTH, expand=True)
+
+            # ── PESTAÑA 1: ENTRADAS ───────────────────────────────────
+            self.tab_entradas = ttk.Frame(self.nb_acciones, padding=15)
+            self.nb_acciones.add(self.tab_entradas, text="⬇️ ENTRADAS")
+
+            ttk.Label(
+                self.tab_entradas,
+                text="ENTRADA DE NUEVO MATERIAL",
+                font=("Segoe UI", 12, "bold"),
+                foreground="#27ae60"
+            ).pack(pady=(0, 15))
+
+            ttk.Label(self.tab_entradas, text="Cantidad a Ingresar:").pack(anchor=W)
+            self.ent_cant_ent = ttk.Entry(
+                self.tab_entradas,
+                font=("Segoe UI", 14, "bold"),
+                justify=CENTER
+            )
+            self.ent_cant_ent.pack(fill=X, pady=5)
+
+            ttk.Label(
+                self.tab_entradas,
+                text="Factura / Referencia:"
+            ).pack(anchor=W, pady=(10, 0))
+            self.ent_factura_ent = ttk.Entry(self.tab_entradas)
+            self.ent_factura_ent.pack(fill=X, pady=2)
+
+            estado_ent = "normal" if self.tiene_permiso('entrada') else "disabled"
+            btn_ent = ttk.Button(
+                self.tab_entradas,
+                text="✅ REGISTRAR ENTRADA",
+                bootstyle="success", state=estado_ent,
+                command=lambda: self.procesar_movimiento("ENTRADA")
+            )
+            btn_ent.pack(fill=X, pady=30, ipady=5)
+            if estado_ent == "disabled":
+                ToolTip(btn_ent, text="No tienes permiso para registrar entradas")
+
+            # ── PESTAÑA 2: SALIDAS ────────────────────────────────────
+            self.tab_salidas = ttk.Frame(self.nb_acciones, padding=10)
+            self.nb_acciones.add(self.tab_salidas, text="⬆️ SALIDAS")
+
+            ttk.Label(
+                self.tab_salidas,
+                text="Registrar Salida de Materiales",
+                font=("Segoe UI", 12, "bold"),
+                foreground="#c0392b"
+            ).pack(pady=(0, 8))
+
+            fr_datos = ttk.LabelFrame(
+                self.tab_salidas,
+                text=" Datos del Vale ",
+                padding=8, bootstyle="danger"
+            )
+            fr_datos.pack(fill=X, pady=(0, 8))
+
+            ttk.Label(fr_datos, text="Destino / Área:").grid(row=0, column=0, sticky=W, pady=2)
+            self.cb_area_sal = ttk.Combobox(fr_datos)
+            self.cb_area_sal.grid(row=0, column=1, sticky=EW, padx=5, pady=2)
+
+            ttk.Label(fr_datos, text="Solicita (Nombre):").grid(row=1, column=0, sticky=W, pady=2)
+            self.ent_resp_sal = ttk.Entry(fr_datos)
+            self.ent_resp_sal.grid(row=1, column=1, sticky=EW, padx=5, pady=2)
+
+            ttk.Label(fr_datos, text="Autoriza / Entrega:").grid(row=2, column=0, sticky=W, pady=2)
+            self.cb_jefe_sal = ttk.Combobox(fr_datos)
+            self.cb_jefe_sal.grid(row=2, column=1, sticky=EW, padx=5, pady=2)
+            fr_datos.columnconfigure(1, weight=1)
+
+            fr_agregar = ttk.LabelFrame(
+                self.tab_salidas,
+                text=" ➕ Agregar Material al Vale ",
+                padding=8, bootstyle="warning"
+            )
+            fr_agregar.pack(fill=X, pady=(0, 6))
+
+            ttk.Label(
+                fr_agregar,
+                text="💡 Selecciona un material en la tabla y escribe la cantidad:",
+                font=("Segoe UI", 8), foreground="gray"
+            ).pack(anchor=W)
+
+            fr_cant_add = ttk.Frame(fr_agregar)
+            fr_cant_add.pack(fill=X, pady=5)
+
+            ttk.Label(
+                fr_cant_add,
+                text="Cantidad:", font=("Segoe UI", 10, "bold")
+            ).pack(side=LEFT)
+            self.ent_cant_sal = ttk.Entry(
+                fr_cant_add, width=8,
+                font=("Segoe UI", 13, "bold"), justify=CENTER
+            )
+            self.ent_cant_sal.pack(side=LEFT, padx=8)
+
+            estado_sal = "normal" if self.tiene_permiso('salida') else "disabled"
+            ttk.Button(
+                fr_cant_add,
+                text="➕ Agregar",
+                bootstyle="warning", state=estado_sal,
+                command=self.agregar_al_carrito
+            ).pack(side=LEFT)
+
+            fr_carrito = ttk.LabelFrame(
+                self.tab_salidas,
+                text=" 🛒 Materiales en este Vale ",
+                padding=5, bootstyle="info"
+            )
+            fr_carrito.pack(fill=BOTH, expand=True, pady=(0, 6))
+
+            cols_c = ("MATERIAL", "CANT", "STOCK")
+            self.tree_carrito = ttk.Treeview(
+                fr_carrito, columns=cols_c,
+                show="headings", height=5, bootstyle="warning"
+            )
+            self.tree_carrito.heading("MATERIAL", text="Material")
+            self.tree_carrito.column("MATERIAL", width=220)
+            self.tree_carrito.heading("CANT", text="Cantidad")
+            self.tree_carrito.column("CANT", width=65, anchor=CENTER)
+            self.tree_carrito.heading("STOCK", text="Stock Actual")
+            self.tree_carrito.column("STOCK", width=80, anchor=CENTER)
+
+            sc_c = ttk.Scrollbar(
+                fr_carrito, orient=VERTICAL,
+                command=self.tree_carrito.yview
+            )
+            self.tree_carrito.configure(yscrollcommand=sc_c.set)
+            self.tree_carrito.pack(side=LEFT, fill=BOTH, expand=True)
+            sc_c.pack(side=RIGHT, fill=Y)
+
+            ttk.Button(
+                self.tab_salidas,
+                text="🗑️ Quitar seleccionado del carrito",
+                bootstyle="secondary-outline",
+                command=self.quitar_del_carrito
+            ).pack(fill=X, pady=(0, 4))
+
+            btn_sal = ttk.Button(
+                self.tab_salidas,
+                text="🔥 REGISTRAR VALE DE SALIDA",
+                bootstyle="danger", state=estado_sal,
+                command=self.procesar_salida_multiple
+            )
+            btn_sal.pack(fill=X, ipady=6)
+            if estado_sal == "disabled":
+                ToolTip(btn_sal, text="No tienes permiso para registrar salidas")
+
+            self._carrito = []
+
+            # ── PESTAÑA 3: CREAR NUEVO MATERIAL ──────────────────────
+            self.tab_nuevo = ttk.Frame(self.nb_acciones, padding=15)
+            self.nb_acciones.add(self.tab_nuevo, text="➕ CREAR NUEVO MATERIAL")
+
+            ttk.Label(
+                self.tab_nuevo,
+                text="Crear Producto",
+                font=("Segoe UI", 12, "bold"),
+                foreground="#2980b9"
+            ).pack(pady=(0, 15))
+
+            ttk.Label(self.tab_nuevo, text="Partida:").pack(anchor=W)
+            self.cb_partida = ttk.Combobox(self.tab_nuevo, state="readonly")
+            self.cb_partida.pack(fill=X, pady=2)
+
+            ttk.Label(
+                self.tab_nuevo,
+                text="Descripción:"
+            ).pack(anchor=W, pady=(10, 0))
+            self.txt_desc = tk.Text(
+                self.tab_nuevo, height=4,
+                font=("Segoe UI", 10), wrap="word"
+            )
+            self.txt_desc.pack(fill=X, pady=2, padx=1)
+
+            # ── Tab en el Text salta al siguiente campo ───────────────
+            def tab_en_descripcion(event):
+                self.ent_stock_inicial.focus_set()
+                return "break"   # "break" evita que inserte el tabulador
+
+            self.txt_desc.bind("<Tab>", tab_en_descripcion)
+
+            ttk.Label(
+                self.tab_nuevo,
+                text="Cantidad Inicial (Stock):"
+            ).pack(anchor=W, pady=(10, 0))
+            self.ent_stock_inicial = ttk.Entry(
+                self.tab_nuevo, justify=CENTER,
+                font=("Segoe UI", 10, "bold")
+            )
+            # SIN valor por defecto — queda en blanco
+            self.ent_stock_inicial.pack(fill=X, pady=2)
+
+            ttk.Label(
+                self.tab_nuevo,
+                text="Factura Inicial:"
+            ).pack(anchor=W, pady=(10, 0))
+            self.txt_factura_alta = ttk.Entry(self.tab_nuevo)
+            self.txt_factura_alta.pack(fill=X, pady=2)
+
+            estado_crear = "normal" if self.tiene_permiso('crear') else "disabled"
+            btn_crear = ttk.Button(
+                self.tab_nuevo,
+                text="💾 GUARDAR",
+                bootstyle="info", state=estado_crear,
+                command=self.agregar_material
+            )
+            btn_crear.pack(fill=X, pady=30, ipady=5)
+            if estado_crear == "disabled":
+                ToolTip(btn_crear, text="No tienes permiso para crear materiales")
+
+        else:
+            # SOLO LECTURA: cartel informativo en lugar del panel de acciones
+            self._carrito = []
+            fr_aviso = ttk.LabelFrame(
+                self.tab_inv,
+                text=" 🔒 Modo Solo Lectura ",
+                padding=20, bootstyle="warning"
+            )
+            fr_aviso.pack(side=LEFT, fill=Y, padx=(0, 10))
+
+            ttk.Label(
+                fr_aviso,
+                text="👁️",
+                font=("Segoe UI Emoji", 42)
+            ).pack(pady=(20, 10))
+
+            ttk.Label(
+                fr_aviso,
+                text="SOLO LECTURA",
+                font=("Segoe UI", 13, "bold"),
+                foreground="#E67E22"
+            ).pack()
+
+            ttk.Label(
+                fr_aviso,
+                text="Solo puedes consultar\nel inventario actual.",
+                font=("Segoe UI", 10),
+                foreground="gray",
+                justify=CENTER
+            ).pack(pady=(8, 0))
+
+            # Etiquetas de selección (necesarias para on_tree_select)
+            self.lbl_seleccionado = ttk.Label(
+                fr_aviso, text="",
+                font=("Segoe UI", 9),
+                foreground="#E67E22",
+                wraplength=160
+            )
+            self.lbl_seleccionado.pack(pady=(20, 0))
+
+            self.lbl_stock_actual = ttk.Label(
+                fr_aviso, text="",
+                font=("Segoe UI", 10, "bold"),
+                foreground="#27ae60"
+            )
+            self.lbl_stock_actual.pack(pady=(4, 0))
+
+        # ════════════════════════════════════════════════════════════
+        # PANEL DERECHO: TABLA DE INVENTARIO (igual para todos)
+        # ════════════════════════════════════════════════════════════
         p_der = ttk.Frame(self.tab_inv)
         p_der.pack(side=RIGHT, fill=BOTH, expand=True)
 
-        # === PANEL IZQUIERDO: INDICADOR DE SELECCIÓN ===
-        fr_info = ttk.LabelFrame(self.p_izq,
-                                 text=" 📦 Material Seleccionado ",
-                                 padding=10, bootstyle="secondary")
-        fr_info.pack(fill=X, pady=(0, 10))
-
-        self.lbl_seleccionado = ttk.Label(
-            fr_info,
-            text="Ninguno (Selecciona en la tabla ➡)",
-            font=("Segoe UI", 11, "bold"),
-            foreground="#E67E22", wraplength=380)
-        self.lbl_seleccionado.pack(anchor=CENTER)
-
-        self.lbl_stock_actual = ttk.Label(
-            fr_info, text="Stock: --", font=("Segoe UI", 10))
-        self.lbl_stock_actual.pack(anchor=CENTER)
-
-        # === PESTAÑAS DE ACCIÓN ===
-        self.nb_acciones = ttk.Notebook(self.p_izq, bootstyle="primary")
-        self.nb_acciones.pack(fill=BOTH, expand=True)
-
-        # ──────────────────────────────────────────────────────────────
-        # PESTAÑA 1: ENTRADAS
-        # ──────────────────────────────────────────────────────────────
-        self.tab_entradas = ttk.Frame(self.nb_acciones, padding=15)
-        self.nb_acciones.add(self.tab_entradas, text="⬇️ ENTRADAS")
-
-        ttk.Label(self.tab_entradas,
-                  text="ENTRADA DE NUEVO MATERIAL",
-                  font=("Segoe UI", 12, "bold"),
-                  foreground="#27ae60").pack(pady=(0, 15))
-
-        ttk.Label(self.tab_entradas, text="Cantidad a Ingresar:").pack(anchor=W)
-        self.ent_cant_ent = ttk.Entry(
-            self.tab_entradas, font=("Segoe UI", 14, "bold"), justify=CENTER)
-        self.ent_cant_ent.pack(fill=X, pady=5)
-
-        ttk.Label(self.tab_entradas,
-                  text="Factura / Referencia:").pack(anchor=W, pady=(10, 0))
-        self.ent_factura_ent = ttk.Entry(self.tab_entradas)
-        self.ent_factura_ent.pack(fill=X, pady=2)
-
-        estado_ent = "normal" if self.tiene_permiso('entrada') else "disabled"
-        btn_ent = ttk.Button(
-            self.tab_entradas,
-            text="✅ REGISTRAR ENTRADA",
-            bootstyle="success", state=estado_ent,
-            command=lambda: self.procesar_movimiento("ENTRADA"))
-        btn_ent.pack(fill=X, pady=30, ipady=5)
-        if estado_ent == "disabled":
-            ToolTip(btn_ent, text="No tienes permiso para registrar entradas")
-
-        # ──────────────────────────────────────────────────────────────
-        # PESTAÑA 2: SALIDAS — SISTEMA DE CARRITO MULTI-MATERIAL
-        # ──────────────────────────────────────────────────────────────
-        self.tab_salidas = ttk.Frame(self.nb_acciones, padding=10)
-        self.nb_acciones.add(self.tab_salidas, text="⬆️ SALIDAS")
-
-        ttk.Label(self.tab_salidas,
-                  text="Registrar Salida de Materiales",
-                  font=("Segoe UI", 12, "bold"),
-                  foreground="#c0392b").pack(pady=(0, 8))
-
-        # ── Datos generales del vale (área, responsable, jefe) ────────
-        fr_datos = ttk.LabelFrame(self.tab_salidas,
-                                  text=" Datos del Vale ",
-                                  padding=8, bootstyle="danger")
-        fr_datos.pack(fill=X, pady=(0, 8))
-
-        ttk.Label(fr_datos, text="Destino / Área:").grid(
-            row=0, column=0, sticky=W, pady=2)
-        self.cb_area_sal = ttk.Combobox(fr_datos)
-        self.cb_area_sal.grid(row=0, column=1, sticky=EW, padx=5, pady=2)
-
-        ttk.Label(fr_datos, text="Solicita (Nombre):").grid(
-            row=1, column=0, sticky=W, pady=2)
-        self.ent_resp_sal = ttk.Entry(fr_datos)
-        self.ent_resp_sal.grid(row=1, column=1, sticky=EW, padx=5, pady=2)
-
-        ttk.Label(fr_datos, text="Autoriza / Entrega:").grid(
-            row=2, column=0, sticky=W, pady=2)
-        self.cb_jefe_sal = ttk.Combobox(fr_datos)
-        self.cb_jefe_sal.grid(row=2, column=1, sticky=EW, padx=5, pady=2)
-
-        fr_datos.columnconfigure(1, weight=1)
-
-        # ── Agregar material al carrito ───────────────────────────────
-        fr_agregar = ttk.LabelFrame(self.tab_salidas,
-                                    text=" ➕ Agregar Material al Vale ",
-                                    padding=8, bootstyle="warning")
-        fr_agregar.pack(fill=X, pady=(0, 6))
-
-        ttk.Label(fr_agregar,
-                  text="💡 Selecciona un material en la tabla y escribe la cantidad:",
-                  font=("Segoe UI", 8), foreground="gray").pack(anchor=W)
-
-        fr_cant_add = ttk.Frame(fr_agregar)
-        fr_cant_add.pack(fill=X, pady=5)
-
-        ttk.Label(fr_cant_add,
-                  text="Cantidad:", font=("Segoe UI", 10, "bold")).pack(side=LEFT)
-        self.ent_cant_sal = ttk.Entry(
-            fr_cant_add, width=8,
-            font=("Segoe UI", 13, "bold"), justify=CENTER)
-        self.ent_cant_sal.pack(side=LEFT, padx=8)
-
-        estado_sal = "normal" if self.tiene_permiso('salida') else "disabled"
-        ttk.Button(
-            fr_cant_add,
-            text="➕ Agregar",
-            bootstyle="warning",
-            state=estado_sal,
-            command=self.agregar_al_carrito
-        ).pack(side=LEFT)
-
-        # ── Lista del carrito ─────────────────────────────────────────
-        fr_carrito = ttk.LabelFrame(self.tab_salidas,
-                                    text=" 🛒 Materiales en este Vale ",
-                                    padding=5, bootstyle="info")
-        fr_carrito.pack(fill=BOTH, expand=True, pady=(0, 6))
-
-        cols_c = ("MATERIAL", "CANT", "STOCK")
-        self.tree_carrito = ttk.Treeview(
-            fr_carrito, columns=cols_c,
-            show="headings", height=5, bootstyle="warning")
-
-        self.tree_carrito.heading("MATERIAL", text="Material")
-        self.tree_carrito.column("MATERIAL", width=220)
-        self.tree_carrito.heading("CANT", text="Cantidad")
-        self.tree_carrito.column("CANT", width=65, anchor=CENTER)
-        self.tree_carrito.heading("STOCK", text="Stock Actual")
-        self.tree_carrito.column("STOCK", width=80, anchor=CENTER)
-
-        sc_c = ttk.Scrollbar(fr_carrito, orient=VERTICAL,
-                              command=self.tree_carrito.yview)
-        self.tree_carrito.configure(yscrollcommand=sc_c.set)
-        self.tree_carrito.pack(side=LEFT, fill=BOTH, expand=True)
-        sc_c.pack(side=RIGHT, fill=Y)
-
-        # Botón quitar del carrito (clic derecho o botón)
-        ttk.Button(
-            self.tab_salidas,
-            text="🗑️ Quitar seleccionado del carrito",
-            bootstyle="secondary-outline",
-            command=self.quitar_del_carrito
-        ).pack(fill=X, pady=(0, 4))
-
-        # Botón REGISTRAR VALE COMPLETO
-        btn_sal = ttk.Button(
-            self.tab_salidas,
-            text="🔥 REGISTRAR VALE DE SALIDA",
-            bootstyle="danger",
-            state=estado_sal,
-            command=self.procesar_salida_multiple)
-        btn_sal.pack(fill=X, ipady=6)
-        if estado_sal == "disabled":
-            ToolTip(btn_sal, text="No tienes permiso para registrar salidas")
-
-        # Lista interna del carrito: [{id, partida, material, cantidad, stock}]
-        self._carrito = []
-
-        # ──────────────────────────────────────────────────────────────
-        # PESTAÑA 3: CREAR NUEVO MATERIAL
-        # ──────────────────────────────────────────────────────────────
-        self.tab_nuevo = ttk.Frame(self.nb_acciones, padding=15)
-        self.nb_acciones.add(self.tab_nuevo, text="➕ CREAR NUEVO MATERIAL")
-
-        ttk.Label(self.tab_nuevo, text="Crear Producto",
-                  font=("Segoe UI", 12, "bold"),
-                  foreground="#2980b9").pack(pady=(0, 15))
-
-        ttk.Label(self.tab_nuevo, text="Partida:").pack(anchor=W)
-        self.cb_partida = ttk.Combobox(self.tab_nuevo, state="readonly")
-        self.cb_partida.pack(fill=X, pady=2)
-
-        ttk.Label(self.tab_nuevo,
-                  text="Descripción:").pack(anchor=W, pady=(10, 0))
-        self.txt_desc = tk.Text(self.tab_nuevo, height=4,
-                                font=("Segoe UI", 10), wrap="word")
-        self.txt_desc.pack(fill=X, pady=2, padx=1)
-
-        ttk.Label(self.tab_nuevo,
-                  text="Cantidad Inicial (Stock):").pack(anchor=W, pady=(10, 0))
-        self.ent_stock_inicial = ttk.Entry(
-            self.tab_nuevo, justify=CENTER,
-            font=("Segoe UI", 10, "bold"))
-        self.ent_stock_inicial.insert(0, "")
-        self.ent_stock_inicial.pack(fill=X, pady=2)
-
-        ttk.Label(self.tab_nuevo,
-                  text="Factura Inicial:").pack(anchor=W, pady=(10, 0))
-        self.txt_factura_alta = ttk.Entry(self.tab_nuevo)
-        self.txt_factura_alta.pack(fill=X, pady=2)
-
-        estado_crear = "normal" if self.tiene_permiso('crear') else "disabled"
-        btn_crear = ttk.Button(
-            self.tab_nuevo, text="💾 GUARDAR",
-            bootstyle="info", state=estado_crear,
-            command=self.agregar_material)
-        btn_crear.pack(fill=X, pady=30, ipady=5)
-        if estado_crear == "disabled":
-            ToolTip(btn_crear, text="No tienes permiso para crear materiales")
-
-        # === PANEL DERECHO: TABLA DE INVENTARIO ===
         fr_top = ttk.Frame(p_der, padding=(0, 5))
         fr_top.pack(fill=X)
 
-        ttk.Label(fr_top, text="🔍 Buscar:",
-                  font=("Segoe UI", 9, "bold")).pack(side=LEFT)
-        self.cb_busqueda_material = ttk.Combobox(fr_top, width=30)
-        self.cb_busqueda_material.pack(side=LEFT, padx=5)
-        self.cb_busqueda_material.bind(
-            "<KeyRelease>", lambda e: self.cargar_tabla_inventario())
-        self.cb_busqueda_material.bind(
-            "<<ComboboxSelected>>", self.cargar_tabla_inventario)
+        ttk.Label(
+            fr_top, text="🔍 Buscar:",
+            font=("Segoe UI", 9, "bold")
+        ).pack(side=LEFT)
 
-        ttk.Label(fr_top, text="📂 Filtrar Partida:",
-                  font=("Segoe UI", 9, "bold")).pack(side=LEFT, padx=(15, 5))
+        self.cb_busqueda_material = ttk.Entry(fr_top, width=30)
+        self.cb_busqueda_material.pack(side=LEFT, padx=5)
+
+        def buscar_inventario_realtime(event=None):
+            if event and event.keysym in ('Tab', 'Escape', 'Return'):
+                return
+            self.cargar_tabla_inventario()
+
+        self.cb_busqueda_material.bind('<KeyRelease>', buscar_inventario_realtime)
+
+        def al_seleccionar_sugerencia(event=None):
+            # Cuando elige una opción del dropdown, recargar tabla
+            self.cargar_tabla_inventario()
+
+        # Solo filtra mientras escribe — NO abre dropdown al hacer clic
+        self.cb_busqueda_material.bind('<KeyRelease>',         buscar_inventario_realtime)
+        self.cb_busqueda_material.bind('<<ComboboxSelected>>', al_seleccionar_sugerencia)
+
+        def abrir_buscador_click(event=None):
+            # Al hacer clic, mostrar todos los materiales disponibles
+            rows_mat = self.db.consultar(
+                "SELECT DISTINCT material FROM inventario ORDER BY material ASC"
+            )
+            lista_mat = [r['material'] for r in rows_mat]
+            self.cb_busqueda_material['values'] = lista_mat
+            try:
+                self.cb_busqueda_material.event_generate('<Down>')
+            except:
+                pass
+
+        self.cb_busqueda_material.bind('<KeyRelease>',        buscar_inventario_realtime)
+        self.cb_busqueda_material.bind('<<ComboboxSelected>>', buscar_inventario_realtime)
+        self.cb_busqueda_material.bind('<Button-1>',           abrir_buscador_click)
+        self.cb_busqueda_material.bind('<FocusIn>',            abrir_buscador_click)
+
+        ttk.Label(
+            fr_top, text="📂 Filtrar Partida:",
+            font=("Segoe UI", 9, "bold")
+        ).pack(side=LEFT, padx=(15, 5))
+
         self.cb_filtro_partida = ttk.Combobox(
-            fr_top, state="readonly", width=15)
+            fr_top, state="readonly", width=15
+        )
         self.cb_filtro_partida.pack(side=LEFT, padx=5)
         self.cb_filtro_partida.bind(
-            "<<ComboboxSelected>>", self.cargar_tabla_inventario)
+            "<<ComboboxSelected>>", self.cargar_tabla_inventario
+        )
 
-        ttk.Button(fr_top, text="🔄 Ver Todo",
-                   bootstyle="link",
-                   command=self.limpiar_filtros).pack(side=LEFT)
+        ttk.Button(
+            fr_top, text="🔄 Ver Todo",
+            bootstyle="link",
+            command=self.limpiar_filtros
+        ).pack(side=LEFT)
 
+        # Tabla principal de inventario
         cols = ("ID", "PARTIDA", "MATERIAL", "STOCK")
         self.tree_inv = ttk.Treeview(
-            p_der, columns=cols, show="headings", bootstyle="info")
-        self.tree_inv.heading("ID", text="ID")
-        self.tree_inv.column("ID", width=40, anchor=CENTER)
-        self.tree_inv.heading("PARTIDA", text="PARTIDA")
-        self.tree_inv.column("PARTIDA", width=80, anchor=CENTER)
+            p_der, columns=cols,
+            show="headings", bootstyle="info"
+        )
+        self.tree_inv.heading("ID",       text="ID")
+        self.tree_inv.column( "ID",       width=40,  anchor=CENTER)
+        self.tree_inv.heading("PARTIDA",  text="PARTIDA")
+        self.tree_inv.column( "PARTIDA",  width=80,  anchor=CENTER)
         self.tree_inv.heading("MATERIAL", text="DESCRIPCIÓN")
-        self.tree_inv.column("MATERIAL", width=400)
-        self.tree_inv.heading("STOCK", text="STOCK")
-        self.tree_inv.column("STOCK", width=80, anchor=CENTER)
+        self.tree_inv.column( "MATERIAL", width=400)
+        self.tree_inv.heading("STOCK",    text="STOCK")
+        self.tree_inv.column( "STOCK",    width=80,  anchor=CENTER)
 
-        sc = ttk.Scrollbar(p_der, orient=VERTICAL,
-                            command=self.tree_inv.yview)
+        sc = ttk.Scrollbar(p_der, orient=VERTICAL, command=self.tree_inv.yview)
         self.tree_inv.configure(yscrollcommand=sc.set)
         self.tree_inv.pack(side=LEFT, fill=BOTH, expand=True)
         sc.pack(side=RIGHT, fill=Y)
+
         self.tree_inv.tag_configure(
-            "BAJO", background="#ffcccc", foreground="#8a1f1f")
+            "BAJO", background="#ffcccc", foreground="#8a1f1f"
+        )
         self.tree_inv.bind("<<TreeviewSelect>>", self.on_tree_select)
 
-        # Menú contextual
-        self.menu_inv = tk.Menu(self.root, tearoff=0)
-        if self.tiene_permiso('editar'):
-            self.menu_inv.add_command(
-                label="✏️ Corregir/Editar Material",
-                command=self.editar_material_seleccionado)
-        if self.tiene_permiso('eliminar') or self.usuario.get('rol') == 'ADMIN':
-            self.menu_inv.add_separator()
-            self.menu_inv.add_command(
-                label="🗑️ Eliminar Material (Solo Admin)",
-                command=self.eliminar_material_seleccionado)
+        # Menú contextual: SOLO si no es modo solo lectura
+        if not es_solo_lectura:
+            self.menu_inv = tk.Menu(self.root, tearoff=0)
+            if self.tiene_permiso('editar'):
+                self.menu_inv.add_command(
+                    label="✏️ Corregir/Editar Material",
+                    command=self.editar_material_seleccionado
+                )
+            if self.tiene_permiso('eliminar') or self.usuario.get('rol') == 'ADMIN':
+                self.menu_inv.add_separator()
+                self.menu_inv.add_command(
+                    label="🗑️ Eliminar Material (Solo Admin)",
+                    command=self.eliminar_material_seleccionado
+                )
 
-        def mostrar_menu_inv(event):
-            item = self.tree_inv.identify_row(event.y)
-            if item:
-                self.tree_inv.selection_set(item)
-                estado_borrar = ("normal"
-                                 if self.usuario.get('rol') == 'ADMIN'
-                                 else "disabled")
-                try:
-                    self.menu_inv.entryconfig(
-                        "🗑️ Eliminar Material (Solo Admin)",
-                        state=estado_borrar)
-                except:
-                    pass
-                self.menu_inv.post(event.x_root, event.y_root)
+            def mostrar_menu_inv(event):
+                item = self.tree_inv.identify_row(event.y)
+                if item:
+                    self.tree_inv.selection_set(item)
+                    estado_borrar = (
+                        "normal"
+                        if self.usuario.get('rol') == 'ADMIN'
+                        else "disabled"
+                    )
+                    try:
+                        self.menu_inv.entryconfig(
+                            "🗑️ Eliminar Material (Solo Admin)",
+                            state=estado_borrar
+                        )
+                    except:
+                        pass
+                    self.menu_inv.post(event.x_root, event.y_root)
 
-        if (self.tiene_permiso('editar') or
-                self.tiene_permiso('eliminar') or
-                self.usuario.get('rol') == 'ADMIN'):
-            self.tree_inv.bind("<Button-3>", mostrar_menu_inv)
+            if (self.tiene_permiso('editar') or
+                    self.tiene_permiso('eliminar') or
+                    self.usuario.get('rol') == 'ADMIN'):
+                self.tree_inv.bind("<Button-3>", mostrar_menu_inv)
 
 
     # ══════════════════════════════════════════════════════════════════
@@ -1655,7 +1823,8 @@ class SistemaInventario:
         if not self._carrito:
             messagebox.showwarning(
                 "Carrito vacío",
-                "Agrega al menos un material al carrito antes de registrar.")
+                "Agrega al menos un material al carrito antes de registrar."
+            )
             return
 
         destino     = self.cb_area_sal.get().strip().upper()  or "S/N"
@@ -1665,14 +1834,14 @@ class SistemaInventario:
         if destino == "S/N" or responsable == "S/N":
             messagebox.showwarning(
                 "Faltan datos",
-                "Completa el Área y el nombre de quien solicita.")
+                "Completa el Área y el nombre de quien solicita."
+            )
             return
 
-        # Confirmación
         resumen = "\n".join(
             f"  • {x['material'][:40]}  →  {x['cantidad']} pzas"
-            for x in self._carrito)
-
+            for x in self._carrito
+        )
         if not messagebox.askyesno(
                 "Confirmar Vale de Salida",
                 f"Se registrarán {len(self._carrito)} material(es):\n\n"
@@ -1683,8 +1852,9 @@ class SistemaInventario:
         fecha      = datetime.now().strftime("%d/%m/%Y")
         fecha_full = datetime.now().strftime("%d/%m/%Y %H:%M")
         folio      = self.generar_folio()
+        usuario_act = self.usuario.get('usuario', 'SISTEMA')
 
-        # ── TRANSACCIÓN ATÓMICA ────────────────────────────────────────
+        # ── Transacción atómica ────────────────────────────────────────
         try:
             with self.db.conectar() as conn:
                 conn.execute("BEGIN")
@@ -1694,20 +1864,22 @@ class SistemaInventario:
 
                         # Actualizar stock
                         conn.execute(
-                            "UPDATE inventario SET stock=?, "
-                            "ultimo_movimiento=? WHERE id=?",
-                            (nuevo_stock, fecha, item['id']))
+                            "UPDATE inventario SET stock=?, ultimo_movimiento=? WHERE id=?",
+                            (nuevo_stock, fecha, item['id'])
+                        )
 
-                        # Historial individual por material
+                        # Historial individual por material con usuario
                         conn.execute(
                             "INSERT INTO historial "
                             "(fecha_hora, tipo, partida, material, cantidad, "
-                            "destino, responsable, entrego, factura) "
-                            "VALUES (?,?,?,?,?,?,?,?,?)",
+                            "destino, responsable, entrego, factura, usuario_sistema) "
+                            "VALUES (?,?,?,?,?,?,?,?,?,?)",
                             (fecha_full, "SALIDA",
                              item['partida'], item['material'],
                              item['cantidad'],
-                             destino, responsable, entrego, folio))
+                             destino, responsable, entrego, folio,
+                             usuario_act)
+                        )
 
                     conn.commit()
 
@@ -1715,17 +1887,19 @@ class SistemaInventario:
                     conn.rollback()
                     messagebox.showerror(
                         "Error crítico",
-                        f"Vale cancelado. BD no modificada.\n\n{e}")
+                        f"Vale cancelado. BD no modificada.\n\n{e}"
+                    )
                     return
 
-            # ── GENERAR PDF CON TODOS LOS MATERIALES ──────────────────
+            # ── Generar PDF ────────────────────────────────────────────
             self.generar_pdf_vale_multiple(
-                self._carrito, destino, responsable, entrego, folio)
+                self._carrito, destino, responsable, entrego, folio
+            )
 
             messagebox.showinfo(
                 "✅ Éxito",
-                f"Vale {folio} registrado con "
-                f"{len(self._carrito)} material(es).")
+                f"Vale {folio} registrado con {len(self._carrito)} material(es)."
+            )
 
             # Limpiar carrito y campos
             self._carrito = []
@@ -1781,40 +1955,44 @@ class SistemaInventario:
             messagebox.showwarning("Atención", "Selecciona un material de la tabla derecha.")
             return
 
-        item = self.tree_inv.item(sel[0])
+        item   = self.tree_inv.item(sel[0])
         valores = item['values']
-        id_mat, partida, nombre_mat, stock_actual = valores[0], valores[1], valores[2], float(valores[3])
+        id_mat, partida, nombre_mat, stock_actual = (
+            valores[0], valores[1], valores[2], float(valores[3])
+        )
 
         cantidad = 0; factura = "S/F"; destino = "S/N"; responsable = "S/N"; entrego = "S/N"
 
         try:
             if tipo == "SALIDA":
-                cantidad = float(self.ent_cant_sal.get())
-                destino = self.cb_area_sal.get().strip().upper() or "S/N"
+                cantidad    = float(self.ent_cant_sal.get())
+                destino     = self.cb_area_sal.get().strip().upper()  or "S/N"
                 responsable = self.ent_resp_sal.get().strip().upper() or "S/N"
-                entrego = self.cb_jefe_sal.get().strip().upper() or "S/N"
+                entrego     = self.cb_jefe_sal.get().strip().upper()  or "S/N"
                 if cantidad > stock_actual:
                     messagebox.showerror("Error", f"Stock insuficiente ({stock_actual}).")
                     return
             elif tipo == "ENTRADA":
                 cantidad = float(self.ent_cant_ent.get())
-                factura = self.ent_factura_ent.get().strip().upper() or "S/F"
+                factura  = self.ent_factura_ent.get().strip().upper() or "S/F"
 
-            if cantidad <= 0: raise ValueError
+            if cantidad <= 0:
+                raise ValueError
         except:
             messagebox.showerror("Error", "Cantidad inválida.")
             return
 
         nuevo_stock = stock_actual + cantidad if tipo == "ENTRADA" else stock_actual - cantidad
-        fecha = datetime.now().strftime("%d/%m/%Y")
-        fecha_full = datetime.now().strftime("%d/%m/%Y %H:%M")
+        fecha       = datetime.now().strftime("%d/%m/%Y")
+        fecha_full  = datetime.now().strftime("%d/%m/%Y %H:%M")
+        usuario_act = self.usuario.get('usuario', 'SISTEMA')
 
-    # --- TRANSACCIÓN ATÓMICA ---
+        # ── Transacción atómica ────────────────────────────────────────
         try:
             with self.db.conectar() as conn:
                 conn.execute("BEGIN")
                 try:
-                # 1. Actualizar stock
+                    # 1. Actualizar stock
                     if tipo == "ENTRADA" and factura != "S/F":
                         conn.execute(
                             "UPDATE inventario SET stock=?, ultimo_movimiento=?, factura=? WHERE id=?",
@@ -1826,20 +2004,26 @@ class SistemaInventario:
                             (nuevo_stock, fecha, id_mat)
                         )
 
-                # 2. Guardar historial
+                    # 2. Guardar historial con usuario
                     conn.execute(
-                        "INSERT INTO historial (fecha_hora, tipo, partida, material, cantidad, destino, responsable, entrego, factura) VALUES (?,?,?,?,?,?,?,?,?)",
-                        (fecha_full, tipo, partida, nombre_mat, cantidad, destino, responsable, entrego, factura)
+                        "INSERT INTO historial "
+                        "(fecha_hora, tipo, partida, material, cantidad, "
+                        "destino, responsable, entrego, factura, usuario_sistema) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (fecha_full, tipo, partida, nombre_mat, cantidad,
+                         destino, responsable, entrego, factura, usuario_act)
                     )
-
                     conn.commit()
 
                 except Exception as e:
                     conn.rollback()
-                    messagebox.showerror("Error crítico", f"Movimiento cancelado. La BD no fue modificada.\n\nDetalle: {e}")
+                    messagebox.showerror(
+                        "Error crítico",
+                        f"Movimiento cancelado. La BD no fue modificada.\n\nDetalle: {e}"
+                    )
                     return
 
-        # --- DESPUÉS de confirmar la transacción, generamos el PDF (no es parte de la BD) ---
+            # ── PDF de salida ──────────────────────────────────────────
             if tipo == "SALIDA":
                 folio = self.generar_folio()
                 self.generar_pdf_vale(nombre_mat, cantidad, destino, responsable, entrego, folio)
@@ -1852,6 +2036,7 @@ class SistemaInventario:
                 self.ent_cant_ent.delete(0, END)
 
             self.cargar_tabla_inventario()
+            self.cargar_tabla_historial()
 
             try:
                 self.tree_inv.selection_set(sel[0])
@@ -1860,81 +2045,95 @@ class SistemaInventario:
                 pass
 
         except Exception as e:
-            messagebox.showerror("Error de conexión", f"No se pudo conectar a la base de datos.\n\nDetalle: {e}")
+            messagebox.showerror(
+                "Error de conexión",
+                f"No se pudo conectar a la base de datos.\n\nDetalle: {e}"
+            )
 
     def cargar_tabla_inventario(self, event=None):
-        for i in self.tree_inv.get_children(): self.tree_inv.delete(i)
-        
-        # 1. Obtener valores de los filtros
-        partida_sel = self.cb_filtro_partida.get()
+        for i in self.tree_inv.get_children():
+            self.tree_inv.delete(i)
+
+        partida_sel    = self.cb_filtro_partida.get()
         texto_busqueda = self.cb_busqueda_material.get().strip().upper()
-        
-        # 2. Construir Consulta SQL
-        sql = "SELECT * FROM inventario WHERE 1=1"
+
+        sql    = "SELECT * FROM inventario WHERE 1=1"
         params = []
-        
-        # Filtro 1: Partida
+
         if partida_sel and partida_sel != "TODAS":
             sql += " AND partida = ?"
             params.append(partida_sel)
-            
-        # Filtro 2: Material (Búsqueda parcial)
+
         if texto_busqueda:
             sql += " AND material LIKE ?"
             params.append(f"%{texto_busqueda}%")
-            
+
         sql += " ORDER BY id DESC"
-        
-        # 3. Ejecutar y Llenar
+
         filas = self.db.consultar(sql, tuple(params))
         for f in filas:
             tag = "BAJO" if f['stock'] <= 2 else ""
-            stock_fmt = int(f['stock']) if f['stock'] == int(f['stock']) else f['stock']
-            self.tree_inv.insert("", END, values=(f['id'], f['partida'], f['material'], stock_fmt), tags=(tag,))
+            # Siempre entero si no tiene decimales reales
+            stock_val = f['stock']
+            try:
+                stock_fmt = int(stock_val) if float(stock_val) == int(float(stock_val)) else round(float(stock_val), 2)
+            except:
+                stock_fmt = stock_val
+            self.tree_inv.insert(
+                "", END,
+                values=(f['id'], f['partida'], f['material'], stock_fmt),
+                tags=(tag,)
+            )
 
     def agregar_material(self):
         partida = self.cb_partida.get()
-        mat = self.txt_desc.get("1.0", "end-1c").strip().upper()
-        fact = self.txt_factura_alta.get().strip().upper() or "S/F"
-        
-        # Capturamos el Stock Inicial
+        mat     = self.txt_desc.get("1.0", "end-1c").strip().upper()
+        fact    = self.txt_factura_alta.get().strip().upper() or "S/F"
+
         try:
             stock_ini = float(self.ent_stock_inicial.get())
-            if stock_ini < 0: raise ValueError
+            if stock_ini < 0:
+                raise ValueError
         except:
             stock_ini = 0.0
-        
+
         if not partida or not mat:
             messagebox.showwarning("Faltan datos", "Indica Partida y Descripción")
             return
-            
+
         try:
-            # 1. Insertar en INVENTARIO con el stock inicial
-            self.db.ejecutar("INSERT INTO inventario (partida, material, factura, stock, ultimo_movimiento) VALUES (?, ?, ?, ?, 'ALTA')", 
-                             (partida, mat, fact, stock_ini))
-            
-            # 2. Si hay stock inicial, registrarlo en el HISTORIAL para que cuadre el Kardex
+            # 1. Insertar en INVENTARIO con stock inicial
+            self.db.ejecutar(
+                "INSERT INTO inventario (partida, material, factura, stock, ultimo_movimiento) "
+                "VALUES (?, ?, ?, ?, 'ALTA')",
+                (partida, mat, fact, stock_ini)
+            )
+
+            # 2. Si hay stock inicial, registrar en HISTORIAL
             if stock_ini > 0:
-                fecha_full = datetime.now().strftime("%d/%m/%Y %H:%M")
+                fecha_full  = datetime.now().strftime("%d/%m/%Y %H:%M")
                 usuario_act = self.usuario.get('usuario', 'SISTEMA')
-                
-                # Insertamos como 'ALTA INICIAL' para diferenciarlo
-                self.db.ejecutar("""
-                    INSERT INTO historial (fecha_hora, tipo, partida, material, cantidad, destino, responsable, entrego, factura)
-                    VALUES (?, 'ALTA INICIAL', ?, ?, ?, 'ALMACEN', ?, 'SISTEMA', ?)
-                """, (fecha_full, partida, mat, stock_ini, usuario_act, fact))
+
+                self.db.ejecutar(
+                    "INSERT INTO historial "
+                    "(fecha_hora, tipo, partida, material, cantidad, "
+                    "destino, responsable, entrego, factura, usuario_sistema) "
+                    "VALUES (?, 'ALTA INICIAL', ?, ?, ?, 'ALMACEN', ?, 'SISTEMA', ?, ?)",
+                    (fecha_full, partida, mat, stock_ini,
+                     usuario_act, fact, usuario_act)
+                )
 
             messagebox.showinfo("Éxito", f"Material creado correctamente.\nStock inicial: {stock_ini}")
-            
+
             # Limpiar campos
             self.txt_desc.delete("1.0", END)
             self.txt_factura_alta.delete(0, END)
             self.ent_stock_inicial.delete(0, END)
-            self.ent_stock_inicial.insert(0, "0")
-            
-            # Recargar tablas
+            self.cb_partida.set("")
+            self.cb_partida.focus_set()
+
             self.cargar_tabla_inventario()
-            self.actualizar_combos() 
+            self.actualizar_combos()
 
         except sqlite3.IntegrityError:
             messagebox.showerror("Duplicado", "Este material ya existe en esa partida")
@@ -1943,33 +2142,47 @@ class SistemaInventario:
 
 
     def setup_tab_historial(self):
-        cols = ("ID", "FECHA", "TIPO", "PARTIDA", "MATERIAL", "CANT", "DESTINO", "RESP", "ENTREGO")
-        # Agregamos ID al principio para poder identificar el registro en la BD
-        self.tree_hist = ttk.Treeview(self.tab_hist, columns=cols, show="headings", bootstyle="primary")
-        
-        anchos = [40, 120, 80, 60, 250, 50, 100, 100, 100]
-        for c, w in zip(cols, anchos):
-            self.tree_hist.heading(c, text=c)
-            self.tree_hist.column(c, width=w, anchor=CENTER if c in ["ID", "CANT", "TIPO"] else W)
-            
+        cols = ("ID", "FECHA", "TIPO", "PARTIDA", "MATERIAL", "CANT", "DESTINO", "RESP", "ENTREGO", "USUARIO")
+        self.tree_hist = ttk.Treeview(
+            self.tab_hist, columns=cols, show="headings", bootstyle="primary"
+        )
+
+        # Columnas cortas/numéricas → CENTER | Columnas de texto → W (izquierda)
+        config_cols = {
+            "ID":       (45,   CENTER),
+            "FECHA":    (130,  CENTER),
+            "TIPO":     (90,   CENTER),
+            "PARTIDA":  (65,   CENTER),
+            "MATERIAL": (260,  W),
+            "CANT":     (55,   CENTER),
+            "DESTINO":  (110,  W),
+            "RESP":     (120,  W),
+            "ENTREGO":  (130,  W),
+            "USUARIO":  (110,  CENTER),
+        }
+
+        for col, (ancho, alineacion) in config_cols.items():
+            self.tree_hist.heading(col, text=col, anchor=alineacion)
+            self.tree_hist.column(col, width=ancho, anchor=alineacion)
+
         sc = ttk.Scrollbar(self.tab_hist, orient=VERTICAL, command=self.tree_hist.yview)
         self.tree_hist.configure(yscrollcommand=sc.set)
         self.tree_hist.pack(side=LEFT, fill=BOTH, expand=True)
         sc.pack(side=RIGHT, fill=Y)
-        
-        self.tree_hist.tag_configure("ENTRADA", foreground="green")
-        self.tree_hist.tag_configure("SALIDA", foreground="blue")
-        self.tree_hist.tag_configure("SISTEMA", foreground="gray")
-        self.tree_hist.tag_configure("ELIMINADO", foreground="red") # Para auditoría de borrados
 
-        # ========================================================
-        # MENÚ CONTEXTUAL HISTORIAL (SOLO ADMIN)
-        # ========================================================
+        self.tree_hist.tag_configure("ENTRADA",   foreground="green")
+        self.tree_hist.tag_configure("SALIDA",    foreground="blue")
+        self.tree_hist.tag_configure("SISTEMA",   foreground="gray")
+        self.tree_hist.tag_configure("ELIMINADO", foreground="red")
+
+        # ── Menú contextual (solo ADMIN) ──────────────────────────────
         self.menu_hist = tk.Menu(self.root, tearoff=0)
-        self.menu_hist.add_command(label="⚠️ Revertir y Eliminar Registro (Admin)", command=self.revertir_historial_admin)
+        self.menu_hist.add_command(
+            label="⚠️ Revertir y Eliminar Registro (Admin)",
+            command=self.revertir_historial_admin
+        )
 
         def mostrar_menu_hist(event):
-            # Solo mostrar si es ADMIN
             if self.usuario.get('rol') == 'ADMIN':
                 item = self.tree_hist.identify_row(event.y)
                 if item:
@@ -1978,14 +2191,54 @@ class SistemaInventario:
 
         self.tree_hist.bind("<Button-3>", mostrar_menu_hist)
 
+        # ── Auto-refresco cada 15 segundos ────────────────────────────
+        self.root.after(15000, self._autorefresh_historial)
+
     def cargar_tabla_historial(self):
-        for i in self.tree_hist.get_children(): self.tree_hist.delete(i)
-        # Traemos también el ID
-        filas = self.db.consultar("SELECT id, fecha_hora, tipo, partida, material, cantidad, destino, responsable, entrego FROM historial ORDER BY id DESC LIMIT 500")
-        for f in filas:
-            color = "ENTRADA" if "ENTRADA" in f['tipo'] else ("SALIDA" if "SALIDA" in f['tipo'] else "SISTEMA")
-            self.tree_hist.insert("", END, values=(f['id'], f['fecha_hora'], f['tipo'], f['partida'], f['material'], 
-                                                   f['cantidad'], f['destino'], f['responsable'], f['entrego']), tags=(color,))
+        try:
+            for i in self.tree_hist.get_children():
+                self.tree_hist.delete(i)
+
+            filas = self.db.consultar(
+                "SELECT id, fecha_hora, tipo, partida, material, cantidad, "
+                "destino, responsable, entrego, usuario_sistema "
+                "FROM historial ORDER BY id DESC LIMIT 500"
+            )
+            for f in filas:
+                tipo_f = f['tipo'] or ""
+                color  = ("ENTRADA" if "ENTRADA" in tipo_f
+                          else ("SALIDA" if "SALIDA" in tipo_f
+                                else "SISTEMA"))
+                usuario_mov = f['usuario_sistema'] or "SISTEMA"
+
+                # Cantidad siempre entera si no tiene decimales reales
+                cant_val = f['cantidad']
+                try:
+                    cant_fmt = int(cant_val) if float(cant_val) == int(float(cant_val)) else round(float(cant_val), 2)
+                except:
+                    cant_fmt = cant_val
+
+                self.tree_hist.insert(
+                    "", END,
+                    values=(
+                        f['id'], f['fecha_hora'], f['tipo'],
+                        f['partida'], f['material'], cant_fmt,
+                        f['destino'], f['responsable'], f['entrego'],
+                        usuario_mov
+                    ),
+                    tags=(color,)
+                )
+        except Exception as e:
+            print(f"Error cargando historial: {e}")
+
+    def _autorefresh_historial(self):
+        """Refresca el historial automáticamente cada 15 segundos"""
+        try:
+            if hasattr(self, 'tree_hist') and self.tree_hist.winfo_exists():
+                self.cargar_tabla_historial()
+                self.root.after(15000, self._autorefresh_historial)
+        except Exception as e:
+            print(f"Auto-refresh historial detenido: {e}")
 
     # --- PESTAÑA AUDITORIA (KARDEX) ---
     def setup_tab_auditoria(self):
@@ -2584,106 +2837,129 @@ class SistemaInventario:
 
 
     def actualizar_combos(self):
-        # 1. PARTIDAS (Para Alta, Filtro Inventario y NUEVO FILTRO KARDEX)
-        rows = self.db.consultar("SELECT valor FROM catalogos WHERE tipo='PARTIDA' ORDER BY valor ASC")
+        # 1. PARTIDAS
+        rows    = self.db.consultar(
+            "SELECT valor FROM catalogos WHERE tipo='PARTIDA' ORDER BY valor ASC"
+        )
         lista_p = [r['valor'] for r in rows]
-        
-        # A. Combo de Alta de Material (Pestaña 1)
-        if hasattr(self, 'cb_partida'): 
+
+        if hasattr(self, 'cb_partida'):
             self.cb_partida['values'] = lista_p
             self.setup_autocomplete(self.cb_partida, lista_p)
-            
-        # B. Filtro de Inventario (Pestaña 1 Derecha)
+
         if hasattr(self, 'cb_filtro_partida'):
-            self.cb_filtro_partida['values'] = ["TODAS"] + lista_p
-            if not self.cb_filtro_partida.get(): self.cb_filtro_partida.current(0)
-        
-        # C. --- CORRECCIÓN: Filtro de Kardex (Pestaña 3) ---
-        if hasattr(self, 'cb_partida_k'):
-            # Le agregamos "TODAS" al principio
-            self.cb_partida_k['values'] = ["TODAS"] + lista_p
-            # Si está vacío, seleccionamos "TODAS" por defecto para que no se vea aplastado
-            if not self.cb_partida_k.get(): 
-                self.cb_partida_k.current(0)
-        
-        # 2. AREAS (CORREGIDO EL NOMBRE DEL COMBOBOX)
-        rows = self.db.consultar("SELECT valor FROM catalogos WHERE tipo='AREA' ORDER BY valor ASC")
+            lista_p_todas = ["TODAS"] + lista_p
+            self.cb_filtro_partida['values'] = lista_p_todas
+            if not self.cb_filtro_partida.get():
+                self.cb_filtro_partida.current(0)
+            # Sin event_generate — la flecha nativa abre el dropdown
+            # Al seleccionar recarga la tabla automáticamente
+
+        if hasattr(self, 'cb_partida_consumo'):
+            self.cb_partida_consumo['values'] = lista_p
+            
+            def abrir_partida_k(event=None):
+                self.cb_partida_k['values'] = lista_p
+                try:
+                    self.cb_partida_k.event_generate('<Down>')
+                except:
+                    pass
+            self.cb_partida_k.bind('<Button-1>', abrir_partida_k)
+            self.cb_partida_k.bind('<FocusIn>',  abrir_partida_k)
+
+        # 2. ÁREAS
+        rows    = self.db.consultar(
+            "SELECT valor FROM catalogos WHERE tipo='AREA' ORDER BY valor ASC"
+        )
         lista_a = [r['valor'] for r in rows]
-        if hasattr(self, 'cb_area_sal'):  # <-- Corrección aquí
-            self.cb_area_sal['values'] = lista_a
+        if hasattr(self, 'cb_area_sal'):
             self.setup_autocomplete(self.cb_area_sal, lista_a)
-        
-        # 3. JEFES (CORREGIDO EL NOMBRE DEL COMBOBOX)
-        rows = self.db.consultar("SELECT valor FROM catalogos WHERE tipo='JEFE' ORDER BY valor ASC")
+
+        # 3. JEFES
+        rows    = self.db.consultar(
+            "SELECT valor FROM catalogos WHERE tipo='JEFE' ORDER BY valor ASC"
+        )
         lista_j = [r['valor'] for r in rows]
-        if hasattr(self, 'cb_jefe_sal'):  # <-- Corrección aquí
-            self.cb_jefe_sal['values'] = lista_j
+        if hasattr(self, 'cb_jefe_sal'):
             self.setup_autocomplete(self.cb_jefe_sal, lista_j)
 
-        # 4. MATERIALES (Para Buscadores)
-        rows_mat = self.db.consultar("SELECT DISTINCT material FROM inventario ORDER BY material ASC")
-        lista_materiales = [r['material'] for r in rows_mat]
-        
-        # Buscador del INVENTARIO
-        if hasattr(self, 'cb_busqueda_material'):
-            self.setup_autocomplete(self.cb_busqueda_material, lista_materiales)
+        # 4. MATERIALES para buscador de inventario
+        pass
+            
 
-    # --- REEMPLAZA ESTA FUNCIÓN COMPLETA ---
+        # 5. Combo de partidas en consumo
+        if hasattr(self, 'cb_partida_consumo'):
+            self.cb_partida_consumo['values'] = lista_p
+            def abrir_part_consumo(event=None):
+                self.cb_partida_consumo['values'] = lista_p
+                try:
+                    self.cb_partida_consumo.event_generate('<Down>')
+                except:
+                    pass
+            self.cb_partida_consumo.bind('<Button-1>', abrir_part_consumo)
+            self.cb_partida_consumo.bind('<FocusIn>',  abrir_part_consumo)
+            
     def abrir_registro_pasado(self):
-        """
-        Registro Histórico Manual CON DISEÑO RESPONSIVO
-        """
-        top = tb.Toplevel(self.root) 
+        """Registro Histórico Manual CON DISEÑO RESPONSIVO"""
+        top = tb.Toplevel(self.root)
         top.title("Registro Histórico Manual")
-        # Tamaño inicial más grande y un mínimo para que no se corte
         top.geometry("500x700")
         top.minsize(450, 600)
-        
-        ttk.Label(top, text="⚠️ CUIDADO: Esto afecta el stock actual.", bootstyle="warning").pack(pady=10)
-        
-        # Frame principal con scroll por si la pantalla es muy pequeña (opcional, pero seguro)
-        # Usamos pack fill=BOTH para que ocupe todo
+
+        ttk.Label(
+            top,
+            text="⚠️ CUIDADO: Esto afecta el stock actual.",
+            bootstyle="warning"
+        ).pack(pady=10)
+
         fr = ttk.Frame(top, padding=20)
         fr.pack(fill=BOTH, expand=True)
-        
-        # --- CAMPOS ---
-        # Usamos fill=X en todos los packs para que se estiren horizontalmente
-        
+
         # 1. FECHA
         ttk.Label(fr, text="Fecha del Movimiento:").pack(anchor=W)
         e_fecha = tb.DateEntry(fr, bootstyle="info", dateformat="%d/%m/%Y")
         e_fecha.pack(fill=X, pady=(0, 10))
-        
+
         # 2. TIPO
         ttk.Label(fr, text="Tipo de Movimiento:").pack(anchor=W)
-        c_tipo = ttk.Combobox(fr, values=["HISTORICO (+) Entrada/Saldo Inicial", "HISTORICO (-) Salida/Ajuste"], state="readonly")
+        c_tipo = ttk.Combobox(
+            fr,
+            values=["HISTORICO (+) Entrada/Saldo Inicial", "HISTORICO (-) Salida/Ajuste"],
+            state="readonly"
+        )
         c_tipo.current(0)
         c_tipo.pack(fill=X, pady=(0, 10))
-        
-        # 3. PARTIDA (OBLIGATORIA)
+
+        # 3. PARTIDA
         ttk.Label(fr, text="Partida (Obligatorio):").pack(anchor=W)
         vals_partidas = []
-        if hasattr(self, 'cb_partida'): vals_partidas = self.cb_partida['values']
-        
+        if hasattr(self, 'cb_partida'):
+            vals_partidas = self.cb_partida['values']
+
         c_partida_hist = ttk.Combobox(fr, values=vals_partidas, state="readonly")
         c_partida_hist.pack(fill=X, pady=(0, 10))
         self.setup_autocomplete(c_partida_hist, list(vals_partidas))
 
         # 4. MATERIAL
+       
         ttk.Label(fr, text="Material Exacto (Busca):").pack(anchor=W)
-        vals_mat = []
-        if hasattr(self, 'cb_busqueda_material'):
-             vals_mat = self.cb_busqueda_material['values']
-             
+        rows_mat = self.db.consultar(
+            "SELECT DISTINCT material FROM inventario ORDER BY material ASC"
+        )
+        vals_mat = [r['material'] for r in rows_mat]
+
         c_mat = ttk.Combobox(fr, values=vals_mat)
-        self.setup_autocomplete(c_mat, list(vals_mat))
         c_mat.pack(fill=X, pady=(0, 10))
-        
+        self.setup_autocomplete(c_mat, vals_mat)
+
         def al_elegir_material(event):
             mat_name = c_mat.get()
-            res = self.db.consultar("SELECT partida FROM inventario WHERE material=?", (mat_name,))
+            res = self.db.consultar(
+                "SELECT partida FROM inventario WHERE material=?", (mat_name,)
+            )
             if res:
                 c_partida_hist.set(res[0]['partida'])
+
         c_mat.bind("<<ComboboxSelected>>", al_elegir_material)
 
         # 5. CANTIDAD
@@ -2695,70 +2971,98 @@ class SistemaInventario:
         ttk.Label(fr, text="Factura / Documento (Opcional):").pack(anchor=W)
         e_factura_hist = ttk.Entry(fr)
         e_factura_hist.pack(fill=X, pady=(0, 10))
-        
+
         # 7. OBSERVACIÓN
         ttk.Label(fr, text="Observación / Responsable:").pack(anchor=W)
         e_obs = ttk.Entry(fr)
-        e_obs.pack(fill=X, pady=(0, 20)) # Un poco más de espacio antes del botón
-        
-        # --- Lógica de Guardado ---
+        e_obs.pack(fill=X, pady=(0, 20))
+
+        # ── Lógica de guardado ─────────────────────────────────────────
         def guardar_historico():
-            mat = c_mat.get().strip().upper()
-            part = c_partida_hist.get().strip()
+            mat    = c_mat.get().strip().upper()
+            part   = c_partida_hist.get().strip()
             tipo_sel = c_tipo.get()
-            fecha = e_fecha.entry.get()
-            obs = e_obs.get().strip().upper() or "AJUSTE MANUAL"
-            fact = e_factura_hist.get().strip().upper() or "S/F"
-            
-            if not mat or not fecha or not part: 
-                messagebox.showwarning("Faltan datos", "Material, Partida y Fecha son obligatorios")
+            fecha  = e_fecha.entry.get()
+            obs    = e_obs.get().strip().upper() or "AJUSTE MANUAL"
+            fact   = e_factura_hist.get().strip().upper() or "S/F"
+            usuario_act = self.usuario.get('usuario', 'SISTEMA')
+
+            if not mat or not fecha or not part:
+                messagebox.showwarning(
+                    "Faltan datos",
+                    "Material, Partida y Fecha son obligatorios"
+                )
                 return
 
             try:
                 cant = float(e_cant.get())
-                if cant <= 0: raise ValueError
-            except: 
+                if cant <= 0:
+                    raise ValueError
+            except:
                 messagebox.showerror("Error", "Cantidad inválida")
                 return
 
-            existe = self.db.consultar("SELECT id FROM inventario WHERE material = ? AND partida = ?", (mat, part))
-            
+            existe = self.db.consultar(
+                "SELECT id FROM inventario WHERE material = ? AND partida = ?",
+                (mat, part)
+            )
+
             if "(+)" in tipo_sel:
                 tipo_db = "HISTORICO (+)"
                 if existe:
-                    sql_stock = "UPDATE inventario SET stock = stock + ? WHERE material = ? AND partida = ?"
-                    self.db.ejecutar(sql_stock, (cant, mat, part))
+                    self.db.ejecutar(
+                        "UPDATE inventario SET stock = stock + ? WHERE material = ? AND partida = ?",
+                        (cant, mat, part)
+                    )
                 else:
-                    if messagebox.askyesno("Nuevo Material", "Este material no existe en esa partida. ¿Crearlo con este stock inicial?"):
-                        self.db.ejecutar("INSERT INTO inventario (partida, material, stock, ultimo_movimiento, factura) VALUES (?, ?, ?, ?, ?)",
-                                         (part, mat, cant, fecha, fact))
+                    if messagebox.askyesno(
+                            "Nuevo Material",
+                            "Este material no existe en esa partida. ¿Crearlo con este stock inicial?"):
+                        self.db.ejecutar(
+                            "INSERT INTO inventario (partida, material, stock, ultimo_movimiento, factura) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            (part, mat, cant, fecha, fact)
+                        )
                     else:
                         return
             else:
                 tipo_db = "HISTORICO (-)"
                 if existe:
-                    sql_stock = "UPDATE inventario SET stock = stock - ? WHERE material = ? AND partida = ?"
-                    self.db.ejecutar(sql_stock, (cant, mat, part))
+                    self.db.ejecutar(
+                        "UPDATE inventario SET stock = stock - ? WHERE material = ? AND partida = ?",
+                        (cant, mat, part)
+                    )
                 else:
-                    messagebox.showerror("Error", "No puedes restar stock de un material que no existe.")
+                    messagebox.showerror(
+                        "Error",
+                        "No puedes restar stock de un material que no existe."
+                    )
                     return
 
             try:
-                self.db.ejecutar("""
-                    INSERT INTO historial (fecha_hora, tipo, partida, material, cantidad, responsable, entrego, factura)
-                    VALUES (?, ?, ?, ?, ?, ?, 'AJUSTE HISTORICO', ?)
-                """, (fecha, tipo_db, part, mat, cant, obs, fact))
-                
+                self.db.ejecutar(
+                    "INSERT INTO historial "
+                    "(fecha_hora, tipo, partida, material, cantidad, "
+                    "responsable, entrego, factura, usuario_sistema) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'AJUSTE HISTORICO', ?, ?)",
+                    (fecha, tipo_db, part, mat, cant,
+                     obs, fact, usuario_act)
+                )
+
                 messagebox.showinfo("Éxito", "Registro histórico aplicado correctamente.")
                 self.cargar_tabla_inventario()
                 self.cargar_tabla_historial()
                 top.destroy()
-                
-            except Exception as e:
-                 messagebox.showerror("Error DB", f"{e}")
 
-        # Botón grande al fondo, pegado abajo con espacio
-        ttk.Button(fr, text="💾 APLICAR MOVIMIENTO", bootstyle="success", command=guardar_historico).pack(fill=X, side=BOTTOM, pady=10, ipady=5)
+            except Exception as e:
+                messagebox.showerror("Error DB", f"{e}")
+
+        ttk.Button(
+            fr,
+            text="💾 APLICAR MOVIMIENTO",
+            bootstyle="success",
+            command=guardar_historico
+        ).pack(fill=X, side=BOTTOM, pady=10, ipady=5)
 
     def generar_folio(self):
         rows = self.db.consultar("SELECT COUNT(*) as total FROM historial WHERE tipo='SALIDA'")
@@ -3075,35 +3379,62 @@ class SistemaInventario:
             # ══════════════════════════════════════════════════════════
             # FIRMAS — FIJAS AL PIE
             # ══════════════════════════════════════════════════════════
-            Y_FIRMAS    = 0.90
-            FIRMA_ANCHO = 1.10
+           # ── Firmas ────────────────────────────────────────────────
+            # ── Firmas ────────────────────────────────────────────────
+            BARRA_AZUL_Y  = 0.18
+            Y_LINEA_FIRMA = 1.45   # Más espacio hacia arriba para textos largos
+            FIRMA_ANCHO   = 1.10
 
-            def dibujar_firma(xc, titulo, nombre):
+            def dibujar_firma(xc, titulo, nombre, chars_linea=22, max_lineas=5):
+                """
+                chars_linea: cuántos caracteres por línea
+                max_lineas:  máximo de renglones antes de recortar
+                """
+                # Línea de firma
                 ax.plot(
                     [xc - FIRMA_ANCHO, xc + FIRMA_ANCHO],
-                    [Y_FIRMAS, Y_FIRMAS],
+                    [Y_LINEA_FIRMA, Y_LINEA_FIRMA],
                     color='#333333', linewidth=0.9
                 )
+
+                # Título
                 ax.text(
-                    xc, Y_FIRMAS - 0.14,
+                    xc, Y_LINEA_FIRMA - 0.13,
                     titulo,
                     ha='center', va='top',
                     fontweight='bold', fontsize=8.5, color=AZUL
                 )
+
+                # Nombre wrapeado
+                lineas     = textwrap.wrap(nombre, chars_linea)
+                lineas     = lineas[:max_lineas]
+                nombre_fmt = "\n".join(lineas)
+
+                # Fontsize dinámico: más texto → letra más chica
+                n = len(lineas)
+                if   n <= 2: fs = 8.0
+                elif n <= 3: fs = 7.5
+                elif n <= 4: fs = 7.0
+                else:        fs = 6.5
+
                 ax.text(
-                    xc, Y_FIRMAS - 0.30,
-                    "\n".join(textwrap.wrap(nombre, 24)),
+                    xc, Y_LINEA_FIRMA - 0.28,
+                    nombre_fmt,
                     ha='center', va='top',
-                    fontsize=8, color='#333333'
+                    fontsize=fs,
+                    color='#333333',
+                    linespacing=1.20
                 )
 
-            dibujar_firma(1.95, "ENTREGÓ",            jefe)
-            dibujar_firma(4.25, "RECIBIÓ / SOLICITÓ", resp)
-            dibujar_firma(6.55, "CONSTAME:",           firma_constame)
+            # ENTREGÓ y RECIBIÓ — normal
+            dibujar_firma(1.95, "ENTREGÓ",            jefe,           chars_linea=22, max_lineas=5)
+            dibujar_firma(4.25, "RECIBIÓ / SOLICITÓ", resp,           chars_linea=22, max_lineas=5)
+            # CONSTAME — más caracteres por línea y más renglones
+            dibujar_firma(6.55, "CONSTAME:",           firma_constame, chars_linea=26, max_lineas=6)
 
-            # Barra azul inferior — debajo de los nombres de firmas
+            # Barra azul inferior fija al fondo
             ax.add_patch(Rectangle(
-                (X_INI, 0.14), X_FIN - X_INI, 0.07,
+                (X_INI, BARRA_AZUL_Y), X_FIN - X_INI, 0.10,
                 facecolor=AZUL, zorder=2
             ))
 
@@ -4261,17 +4592,16 @@ class SistemaInventario:
         top.title("Gestión de Usuarios y Permisos")
         top.state('zoomed')
         top.minsize(900, 600)
-        # ✅ FIX 1: Evita que se minimice al mostrar mensajes
         top.grab_set()
         top.focus_force()
 
-    # --- VARIABLES DE CONTROL ---
-        var_id     = tk.StringVar()
-        var_user   = tk.StringVar()
-        var_pass   = tk.StringVar()
-        var_nombre = tk.StringVar()
-        var_email  = tk.StringVar()
-        var_rol    = tk.StringVar(value="OPERADOR")
+        # ── Variables de control ──────────────────────────────────────
+        var_id        = tk.StringVar()
+        var_user      = tk.StringVar()
+        var_pass      = tk.StringVar()
+        var_nombre    = tk.StringVar()
+        var_email     = tk.StringVar()
+        var_rol       = tk.StringVar(value="OPERADOR")
         var_foto_path = tk.StringVar()
 
         var_p_crear = tk.IntVar(); var_p_ent  = tk.IntVar(); var_p_sal  = tk.IntVar()
@@ -4289,9 +4619,9 @@ class SistemaInventario:
         paned = original_ttk.PanedWindow(main_container, orient=HORIZONTAL)
         paned.pack(fill=BOTH, expand=True)
 
-    # ==========================================
-    # PANEL IZQUIERDO: LISTA DE USUARIOS
-    # ==========================================
+        # ══════════════════════════════════════════════════════════════
+        # PANEL IZQUIERDO: LISTA DE USUARIOS
+        # ══════════════════════════════════════════════════════════════
         fr_lista = ttk.Labelframe(paned, text=" Usuarios Registrados ", padding=10, bootstyle="info")
         paned.add(fr_lista, weight=1)
 
@@ -4308,18 +4638,22 @@ class SistemaInventario:
         tree_users.pack(side=LEFT, fill=BOTH, expand=True)
         sc_u.pack(side=RIGHT, fill=Y)
 
-        ttk.Label(fr_lista, text="💡 Selecciona un usuario para editarlo",
-                font=("Segoe UI", 8), bootstyle="secondary").pack(side=BOTTOM, fill=X)
+        ttk.Label(
+            fr_lista,
+            text="💡 Selecciona un usuario para editarlo",
+            font=("Segoe UI", 8), bootstyle="secondary"
+        ).pack(side=BOTTOM, fill=X)
 
-    # ==========================================
-    # PANEL DERECHO: FORMULARIO CON SCROLL
-    # ==========================================
-        fr_form = ttk.Labelframe(paned, text=" Ficha de Usuario y Permisos ",
-                                padding=15, bootstyle="primary")
+        # ══════════════════════════════════════════════════════════════
+        # PANEL DERECHO: FORMULARIO CON SCROLL
+        # ══════════════════════════════════════════════════════════════
+        fr_form = ttk.Labelframe(
+            paned, text=" Ficha de Usuario y Permisos ",
+            padding=15, bootstyle="primary"
+        )
         paned.add(fr_form, weight=3)
 
-    # ✅ FIX 2: Scroll correcto con rueda del ratón
-        canvas_form   = tk.Canvas(fr_form, highlightthickness=0)
+        canvas_form    = tk.Canvas(fr_form, highlightthickness=0)
         scrollbar_form = ttk.Scrollbar(fr_form, orient=VERTICAL, command=canvas_form.yview)
         scrollable_frame = ttk.Frame(canvas_form)
 
@@ -4330,7 +4664,6 @@ class SistemaInventario:
         canvas_form.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas_form.configure(yscrollcommand=scrollbar_form.set)
 
-    # Vincular rueda del ratón al canvas
         def _on_mousewheel(event):
             canvas_form.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
@@ -4346,14 +4679,16 @@ class SistemaInventario:
         scrollbar_form.pack(side=RIGHT, fill=Y)
         canvas_form.pack(side=LEFT, fill=BOTH, expand=True)
 
-    # ✅ FIX 3: Tab order — lista ordenada de widgets para Tab
         tab_order = []
 
-    # --- SECCIÓN FOTO ---
+        # ── Sección Foto ──────────────────────────────────────────────
         fr_foto = ttk.Frame(scrollable_frame)
         fr_foto.pack(fill=X, pady=(0, 10))
 
-        self.lbl_preview = ttk.Label(fr_foto, text="👤", font=("Segoe UI Emoji", 40), anchor=CENTER)
+        self.lbl_preview = ttk.Label(
+            fr_foto, text="👤",
+            font=("Segoe UI Emoji", 40), anchor=CENTER
+        )
         self.lbl_preview.pack(side=LEFT, padx=10)
 
         def seleccionar_foto():
@@ -4372,21 +4707,24 @@ class SistemaInventario:
             top.lift()
             top.focus_force()
 
-        ttk.Button(fr_foto, text="📂 Cambiar Foto", bootstyle="secondary-outline",
-                command=seleccionar_foto).pack(side=LEFT, padx=10)
+        ttk.Button(
+            fr_foto, text="📂 Cambiar Foto",
+            bootstyle="secondary-outline",
+            command=seleccionar_foto
+        ).pack(side=LEFT, padx=10)
 
-    # --- CAMPOS DE TEXTO ---
+        # ── Campos de texto ───────────────────────────────────────────
         fr_campos = ttk.Frame(scrollable_frame)
         fr_campos.pack(fill=X)
         fr_campos.columnconfigure(1, weight=1)
 
-    # Fila 0: Usuario
+        # Fila 0: Usuario
         ttk.Label(fr_campos, text="Usuario (Login):").grid(row=0, column=0, sticky=W, pady=5)
         e_user = ttk.Entry(fr_campos, textvariable=var_user, font=("Segoe UI", 10, "bold"))
         e_user.grid(row=0, column=1, sticky=EW, pady=5, padx=5)
         tab_order.append(e_user)
 
-    # Fila 1: Contraseña
+        # Fila 1: Contraseña
         ttk.Label(fr_campos, text="Contraseña:").grid(row=1, column=0, sticky=W, pady=5)
         fr_pass = ttk.Frame(fr_campos)
         fr_pass.grid(row=1, column=1, sticky=EW, pady=5, padx=5)
@@ -4401,38 +4739,39 @@ class SistemaInventario:
             command=lambda: e_pass.config(show="" if ver_pass.get() else "*")
         ).pack(side=LEFT)
 
-    # Hint contraseña
         ttk.Label(
             fr_campos,
             text="📋 Mínimo 8 caracteres · Una MAYÚSCULA · una minúscula · un número · solo alfanumérico",
             font=("Segoe UI", 7, "italic"), foreground="#888888"
         ).grid(row=2, column=1, sticky=W, padx=5)
 
-    # Fila 3: Nombre
+        # Fila 3: Nombre
         ttk.Label(fr_campos, text="Nombre Completo:").grid(row=3, column=0, sticky=W, pady=5)
         e_nombre = ttk.Entry(fr_campos, textvariable=var_nombre)
         e_nombre.grid(row=3, column=1, sticky=EW, pady=5, padx=5)
         tab_order.append(e_nombre)
 
-    # Fila 4: Email
+        # Fila 4: Email
         ttk.Label(fr_campos, text="Correo Electrónico:").grid(row=4, column=0, sticky=W, pady=5)
         e_email = ttk.Entry(fr_campos, textvariable=var_email)
         e_email.grid(row=4, column=1, sticky=EW, pady=5, padx=5)
         tab_order.append(e_email)
 
-    # Fila 5: Rol
+        # Fila 5: Rol
         ttk.Label(fr_campos, text="Rol (Etiqueta):").grid(row=5, column=0, sticky=W, pady=5)
-        cbox_rol = ttk.Combobox(fr_campos, textvariable=var_rol,
-                             values=["OPERADOR", "ADMIN", "SOLO LECTURA"], state="readonly")
+        cbox_rol = ttk.Combobox(
+            fr_campos, textvariable=var_rol,
+            values=["OPERADOR", "ADMIN", "SOLO LECTURA"],
+            state="readonly"
+        )
         cbox_rol.grid(row=5, column=1, sticky=EW, pady=5, padx=5)
         tab_order.append(cbox_rol)
 
-    # ✅ FIX 3: Aplicar Tab order manualmente
+        # Tab order manual
         def focus_next(event):
             try:
                 idx = tab_order.index(event.widget)
-                next_widget = tab_order[(idx + 1) % len(tab_order)]
-                next_widget.focus_set()
+                tab_order[(idx + 1) % len(tab_order)].focus_set()
             except ValueError:
                 pass
             return "break"
@@ -4440,8 +4779,7 @@ class SistemaInventario:
         def focus_prev(event):
             try:
                 idx = tab_order.index(event.widget)
-                prev_widget = tab_order[(idx - 1) % len(tab_order)]
-                prev_widget.focus_set()
+                tab_order[(idx - 1) % len(tab_order)].focus_set()
             except ValueError:
                 pass
             return "break"
@@ -4450,9 +4788,11 @@ class SistemaInventario:
             widget.bind("<Tab>",       focus_next)
             widget.bind("<Shift-Tab>", focus_prev)
 
-    # --- SECCIÓN PERMISOS ---
-        fr_permisos = ttk.LabelFrame(scrollable_frame, text=" Configuración de Accesos ",
-                                  padding=10, bootstyle="warning")
+        # ── Sección Permisos ──────────────────────────────────────────
+        fr_permisos = ttk.LabelFrame(
+            scrollable_frame, text=" Configuración de Accesos ",
+            padding=10, bootstyle="warning"
+        )
         fr_permisos.pack(fill=X, pady=15)
 
         col1 = ttk.Frame(fr_permisos); col1.pack(side=LEFT, fill=Y, expand=True, padx=5)
@@ -4469,12 +4809,11 @@ class SistemaInventario:
         ttk.Checkbutton(col2, text="Modificar Histórico", variable=var_p_hist,  bootstyle="round-toggle").pack(anchor=W, pady=2)
         ttk.Checkbutton(col2, text="Ajustes (Logos)",     variable=var_p_conf,  bootstyle="round-toggle").pack(anchor=W, pady=2)
 
-    # Lógica de Roles
         def al_cambiar_rol(event):
             rol = var_rol.get()
             if rol == "ADMIN":
                 for v in [var_p_crear, var_p_ent, var_p_sal, var_p_edit,
-                        var_p_del, var_p_cat, var_p_hist, var_p_conf]:
+                          var_p_del, var_p_cat, var_p_hist, var_p_conf]:
                     v.set(1)
             elif rol == "OPERADOR":
                 var_p_crear.set(1); var_p_ent.set(1); var_p_sal.set(1)
@@ -4482,14 +4821,14 @@ class SistemaInventario:
                 var_p_cat.set(0);   var_p_hist.set(0); var_p_conf.set(0)
             elif rol == "SOLO LECTURA":
                 for v in [var_p_crear, var_p_ent, var_p_sal, var_p_edit,
-                        var_p_del, var_p_cat, var_p_hist, var_p_conf]:
+                          var_p_del, var_p_cat, var_p_hist, var_p_conf]:
                     v.set(0)
 
         cbox_rol.bind("<<ComboboxSelected>>", al_cambiar_rol)
 
-    # ==========================================
-    # FUNCIONES CRUD
-    # ==========================================
+        # ══════════════════════════════════════════════════════════════
+        # FUNCIONES CRUD
+        # ══════════════════════════════════════════════════════════════
         def limpiar_form():
             self.usuario_seleccionado_id = None
             self.password_actual_hash    = ""
@@ -4533,14 +4872,14 @@ class SistemaInventario:
                 import json
                 try:
                     p = json.loads(u.get('permisos', '{}'))
-                    var_p_crear.set(p.get('crear',    0))
-                    var_p_ent.set(  p.get('entrada',  0))
-                    var_p_sal.set(  p.get('salida',   0))
-                    var_p_edit.set( p.get('editar',   0))
-                    var_p_del.set(  p.get('eliminar', 0))
-                    var_p_cat.set(  p.get('catalogos',0))
-                    var_p_hist.set( p.get('historico',0))
-                    var_p_conf.set( p.get('ajustes',  0))
+                    var_p_crear.set(p.get('crear',     0))
+                    var_p_ent.set(  p.get('entrada',   0))
+                    var_p_sal.set(  p.get('salida',    0))
+                    var_p_edit.set( p.get('editar',    0))
+                    var_p_del.set(  p.get('eliminar',  0))
+                    var_p_cat.set(  p.get('catalogos', 0))
+                    var_p_hist.set( p.get('historico', 0))
+                    var_p_conf.set( p.get('ajustes',   0))
                 except:
                     al_cambiar_rol(None)
 
@@ -4559,29 +4898,29 @@ class SistemaInventario:
 
         tree_users.bind("<<TreeviewSelect>>", llenar_formulario)
 
-    # ✅ FIX 1: guardar usa parent=top y top.lift()/focus_force() en todos los mensajes
         def guardar():
             import re, json
 
-            u = var_user.get().strip().upper()
+            # ── CAMBIO: se elimina .upper() para respetar el texto tal como se escribe ──
+            u = var_user.get().strip()
             p = var_pass.get().strip()
             r = var_rol.get()
-            n = var_nombre.get().strip().upper() or u
+            n = var_nombre.get().strip().upper() or u.upper()
             e = var_email.get().strip()
             f = var_foto_path.get()
 
-        # Validar usuario
             if not u:
-                messagebox.showwarning("Campo requerido",
-                                    "El nombre de usuario es obligatorio.",
-                                    parent=top)
+                messagebox.showwarning(
+                    "Campo requerido",
+                    "El nombre de usuario es obligatorio.",
+                    parent=top
+                )
                 top.lift(); top.focus_force()
                 return
 
             es_nuevo    = (self.usuario_seleccionado_id is None)
             cambio_pass = bool(p)
 
-        # Contraseña obligatoria en nuevo
             if es_nuevo and not p:
                 messagebox.showwarning(
                     "Contraseña requerida",
@@ -4599,7 +4938,6 @@ class SistemaInventario:
                 e_pass.focus_set()
                 return
 
-        # Validar reglas si hay nueva contraseña
             if cambio_pass:
                 errores = []
                 if len(p) < 8:
@@ -4632,7 +4970,6 @@ class SistemaInventario:
                     e_pass.focus_set()
                     return
 
-            # Hash seguro
                 salt    = secrets.token_hex(16)
                 h_nuevo = hashlib.pbkdf2_hmac(
                     'sha256', p.encode(), salt.encode(), 100000
@@ -4641,7 +4978,6 @@ class SistemaInventario:
             else:
                 p_fin = self.password_actual_hash
 
-        # Permisos
             permisos = json.dumps({
                 "crear":     var_p_crear.get(),
                 "entrada":   var_p_ent.get(),
@@ -4672,45 +5008,63 @@ class SistemaInventario:
 
                 limpiar_form()
                 cargar_usuarios_en_lista()
-                messagebox.showinfo("✅  Guardado",
-                                    f"Usuario '{u}' {accion} correctamente.",
-                                    parent=top)
+                messagebox.showinfo(
+                    "✅  Guardado",
+                    f"Usuario '{u}' {accion} correctamente.",
+                    parent=top
+                )
                 top.lift(); top.focus_force()
 
             except sqlite3.IntegrityError:
-                messagebox.showerror("Usuario duplicado",
-                                    f"Ya existe un usuario con el nombre '{u}'.\n"
-                                    "Elige un nombre diferente.",
-                                    parent=top)
+                messagebox.showerror(
+                    "Usuario duplicado",
+                    f"Ya existe un usuario con el nombre '{u}'.\n"
+                    "Elige un nombre diferente.",
+                    parent=top
+                )
                 top.lift(); top.focus_force()
             except Exception as ex:
-                messagebox.showerror("Error al guardar",
-                                    f"No se pudo guardar el usuario:\n{ex}",
-                                    parent=top)
+                messagebox.showerror(
+                    "Error al guardar",
+                    f"No se pudo guardar el usuario:\n{ex}",
+                    parent=top
+                )
                 top.lift(); top.focus_force()
 
         def eliminar():
             if self.usuario_seleccionado_id:
                 if messagebox.askyesno("Borrar", "¿Eliminar usuario?", parent=top):
-                    self.db.ejecutar("DELETE FROM usuarios WHERE id=?",
-                                    (self.usuario_seleccionado_id,))
+                    self.db.ejecutar(
+                        "DELETE FROM usuarios WHERE id=?",
+                        (self.usuario_seleccionado_id,)
+                    )
                     limpiar_form()
                     cargar_usuarios_en_lista()
                     top.lift(); top.focus_force()
 
-    # --- BOTONERA INFERIOR ---
+        # ── Botonera inferior ─────────────────────────────────────────
         fr_btns = ttk.Frame(fr_form, padding=(0, 10))
         fr_btns.pack(side=BOTTOM, fill=X)
 
-        ttk.Button(fr_btns, text="🧹 Limpiar", bootstyle="secondary-outline",
-                command=limpiar_form).pack(side=LEFT, expand=True, fill=X, padx=2)
-        btn_guardar = ttk.Button(fr_btns, text="💾 CREAR NUEVO",
-                                bootstyle="success", command=guardar)
-        btn_guardar.pack(side=LEFT, expand=True, fill=X, padx=2)
-        ttk.Button(fr_btns, text="🗑️ Eliminar", bootstyle="danger",
-                command=eliminar).pack(side=LEFT, expand=True, fill=X, padx=2)
+        ttk.Button(
+            fr_btns, text="🧹 Limpiar",
+            bootstyle="secondary-outline",
+            command=limpiar_form
+        ).pack(side=LEFT, expand=True, fill=X, padx=2)
 
-    # Carga inicial
+        btn_guardar = ttk.Button(
+            fr_btns, text="💾 CREAR NUEVO",
+            bootstyle="success", command=guardar
+        )
+        btn_guardar.pack(side=LEFT, expand=True, fill=X, padx=2)
+
+        ttk.Button(
+            fr_btns, text="🗑️ Eliminar",
+            bootstyle="danger",
+            command=eliminar
+        ).pack(side=LEFT, expand=True, fill=X, padx=2)
+
+        # Carga inicial
         cargar_usuarios_en_lista()
         e_user.focus_set()
 
@@ -4718,14 +5072,17 @@ class SistemaInventario:
     def registrar_accion(self, tipo, partida, material, cantidad, destino, detalles=""):
         """Registra auditoría en el historial (quién hizo qué)."""
         try:
-            from datetime import datetime
-            fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
-            usuario = self.usuario.get('usuario', 'SISTEMA') if hasattr(self, 'usuario') else 'SISTEMA'
-            
-            self.db.ejecutar("""
-                INSERT INTO historial (fecha_hora, tipo, partida, material, cantidad, destino, responsable, entrego, factura)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (fecha, tipo, partida, material, cantidad, destino, usuario, "AUDITORIA", detalles))
+            fecha       = datetime.now().strftime("%d/%m/%Y %H:%M")
+            usuario_act = self.usuario.get('usuario', 'SISTEMA') if hasattr(self, 'usuario') else 'SISTEMA'
+
+            self.db.ejecutar(
+                "INSERT INTO historial "
+                "(fecha_hora, tipo, partida, material, cantidad, "
+                "destino, responsable, entrego, factura, usuario_sistema) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (fecha, tipo, partida, material, cantidad,
+                 destino, usuario_act, "AUDITORIA", detalles, usuario_act)
+            )
         except Exception as e:
             print(f"Error log: {e}")
 
@@ -5154,13 +5511,15 @@ class SistemaInventario:
 
 
     def generar_grafica_consumo(self):
-        """Genera gráfica con fechas exactas día/mes/año"""
-        from matplotlib.figure import Figure
-        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        """
+        Gráfica de consumo optimizada para 200+ materiales.
+        - Tabla muestra todos con scroll virtual
+        - Gráfica muestra Top N configurable (10, 15, 20)
+        - Consulta SQL directa sin procesar todo en Python
+        """
         import matplotlib.animation as animation
-        import calendar
 
-        # ── Limpiar ───────────────────────────────────────────────────
+        # ── Limpiar área ──────────────────────────────────────────────
         for widget in self.fr_grafica_container.winfo_children():
             widget.destroy()
         for i in self.tree_consumo.get_children():
@@ -5172,59 +5531,43 @@ class SistemaInventario:
             except:
                 pass
 
-        tipo         = self.var_tipo_reporte.get()
-        consumo      = {}
-        partida_info = {}
-        titulo_grafica = ""
+        tipo = self.var_tipo_reporte.get()
 
         # ── Leer y validar fechas ─────────────────────────────────────
         def leer_fecha(ent_dia, ent_mes, ent_anio, nombre):
-            """Lee y valida una fecha desde 3 Entry separados"""
             try:
                 dia  = int(ent_dia.get().strip())
                 mes  = int(ent_mes.get().strip())
                 anio = int(ent_anio.get().strip())
-
-                # Validar rangos básicos
-                if not (1 <= dia <= 31):
-                    raise ValueError(f"Día inválido en {nombre}")
-                if not (1 <= mes <= 12):
-                    raise ValueError(f"Mes inválido en {nombre}")
-                if anio < 2000:
-                    raise ValueError(f"Año inválido en {nombre}")
-
+                if not (1 <= dia <= 31): raise ValueError(f"Día inválido en {nombre}")
+                if not (1 <= mes <= 12): raise ValueError(f"Mes inválido en {nombre}")
+                if anio < 2000:          raise ValueError(f"Año inválido en {nombre}")
                 return datetime(anio, mes, dia)
-
             except ValueError as e:
                 messagebox.showerror(
                     "❌ Fecha inválida",
                     f"Error en la fecha {nombre}:\n{e}\n\n"
-                    "Formato correcto: DD / MM / AAAA\n"
-                    "Ejemplo: 10 / 03 / 2025",
+                    "Formato correcto: DD / MM / AAAA",
                     parent=self.root)
                 return None
 
+        # ── Construir consulta SQL directa (más eficiente que Python) ─
         try:
-            if tipo in ("PERIODO", "PERIODO_PARTIDA"):
+            condiciones_sql = []
+            params_sql      = []
 
-                # Leer fechas exactas
+            if tipo in ("PERIODO", "PERIODO_PARTIDA"):
                 fecha_ini = leer_fecha(
-                    self.ent_dia_ini,
-                    self.ent_mes_ini,
+                    self.ent_dia_ini, self.ent_mes_ini,
                     self.ent_anio_ini, "DESDE")
-                if fecha_ini is None:
-                    return
+                if fecha_ini is None: return
 
                 fecha_fin = leer_fecha(
-                    self.ent_dia_fin,
-                    self.ent_mes_fin,
+                    self.ent_dia_fin, self.ent_mes_fin,
                     self.ent_anio_fin, "HASTA")
-                if fecha_fin is None:
-                    return
+                if fecha_fin is None: return
 
-                # Ajustar hora fin al último segundo del día
-                fecha_fin = fecha_fin.replace(
-                    hour=23, minute=59, second=59)
+                fecha_fin = fecha_fin.replace(hour=23, minute=59, second=59)
 
                 if fecha_ini > fecha_fin:
                     messagebox.showerror(
@@ -5236,112 +5579,115 @@ class SistemaInventario:
                 str_ini = fecha_ini.strftime("%d/%m/%Y")
                 str_fin = fecha_fin.strftime("%d/%m/%Y")
 
-                if tipo == "PERIODO":
-                    titulo_grafica = (
-                        f"Consumo del {str_ini}  →  {str_fin}"
-                    )
-                    partida_filtro = None
-                else:
+                if tipo == "PERIODO_PARTIDA":
                     partida_filtro = self.cb_partida_consumo.get()
                     titulo_grafica = (
                         f"Consumo Partida {partida_filtro}\n"
-                        f"{str_ini}  →  {str_fin}"
-                    )
-
-                # Consultar historial
-                sql = """
-                    SELECT h.fecha_hora, h.material, h.cantidad, i.partida
-                    FROM historial h
-                    LEFT JOIN inventario i ON h.material = i.material
-                    WHERE h.tipo LIKE '%SALIDA%'
-                       OR h.tipo LIKE '%HISTORICO (-)%'
-                """
-                datos = self.db.consultar(sql)
-
-                for d in datos:
-                    try:
-                        raw    = d['fecha_hora']
-                        partes = raw.split("/")
-                        dia_d  = int(partes[0])
-                        mes_d  = int(partes[1])
-                        anio_d = int(partes[2].split(" ")[0])
-                        f_obj  = datetime(anio_d, mes_d, dia_d)
-                    except:
-                        continue
-
-                    if not (fecha_ini <= f_obj <= fecha_fin):
-                        continue
-
-                    part = d['partida'] or "S/P"
-                    if partida_filtro and part != partida_filtro:
-                        continue
-
-                    mat  = d['material']
-                    cant = d['cantidad']
-                    consumo[mat]      = consumo.get(mat, 0) + cant
-                    partida_info[mat] = part
+                        f"{str_ini}  →  {str_fin}")
+                else:
+                    partida_filtro = None
+                    titulo_grafica = f"Consumo del {str_ini}  →  {str_fin}"
 
             elif tipo == "GENERAL_PARTIDA":
                 partida_filtro = self.cb_partida_consumo.get()
-                titulo_grafica = (
-                    f"Consumo General  —  Partida {partida_filtro}"
-                )
-
-                sql = """
-                    SELECT h.material, h.cantidad, i.partida
-                    FROM historial h
-                    LEFT JOIN inventario i ON h.material = i.material
-                    WHERE (h.tipo LIKE '%SALIDA%'
-                       OR h.tipo LIKE '%HISTORICO (-)%')
-                      AND i.partida = ?
-                """
-                datos = self.db.consultar(sql, (partida_filtro,))
-
-                for d in datos:
-                    mat  = d['material']
-                    cant = d['cantidad']
-                    consumo[mat]      = consumo.get(mat, 0) + cant
-                    partida_info[mat] = partida_filtro
+                titulo_grafica = f"Consumo General  —  Partida {partida_filtro}"
+                fecha_ini      = None
+                fecha_fin      = None
 
         except Exception as e:
-            messagebox.showerror(
-                "Error", f"Error procesando filtros:\n{e}")
+            messagebox.showerror("Error", f"Error procesando filtros:\n{e}")
+            return
+
+        # ── Obtener datos agrupados directo desde SQL ─────────────────
+        # Mucho más rápido que iterar en Python con 200+ materiales
+        try:
+            sql_base = """
+                SELECT
+                    h.material,
+                    COALESCE(i.partida, 'S/P') AS partida,
+                    SUM(h.cantidad)            AS total
+                FROM historial h
+                LEFT JOIN inventario i ON h.material = i.material
+                WHERE (
+                    h.tipo LIKE '%SALIDA%'
+                    OR h.tipo LIKE '%HISTORICO (-)%'
+                )
+            """
+            params = []
+
+            if fecha_ini and fecha_fin:
+                # Filtrar por rango de fechas usando substr de SQLite
+                sql_base += """
+                    AND (
+                        CAST(substr(h.fecha_hora, 7, 4) AS INTEGER) * 10000
+                        + CAST(substr(h.fecha_hora, 4, 2) AS INTEGER) * 100
+                        + CAST(substr(h.fecha_hora, 1, 2) AS INTEGER)
+                    ) BETWEEN ? AND ?
+                """
+                fecha_ini_int = (fecha_ini.year * 10000
+                                 + fecha_ini.month * 100
+                                 + fecha_ini.day)
+                fecha_fin_int = (fecha_fin.year * 10000
+                                 + fecha_fin.month * 100
+                                 + fecha_fin.day)
+                params.extend([fecha_ini_int, fecha_fin_int])
+
+            if partida_filtro:
+                sql_base += " AND i.partida = ?"
+                params.append(partida_filtro)
+
+            sql_base += " GROUP BY h.material, i.partida ORDER BY total DESC"
+
+            datos_sql = self.db.consultar(sql_base, tuple(params))
+
+        except Exception as e:
+            messagebox.showerror("Error SQL", f"{e}")
             return
 
         # ── Sin datos ─────────────────────────────────────────────────
-        if not consumo:
+        if not datos_sql:
             ttk.Label(
                 self.fr_grafica_container,
                 text="⚠️  Sin movimientos para los filtros seleccionados.",
-                font=("Segoe UI", 14),
-                foreground="#e74c3c"
+                font=("Segoe UI", 14), foreground="#e74c3c"
             ).place(relx=0.5, rely=0.5, anchor=CENTER)
             self.lbl_resumen_total.config(text="Total: 0 pzas")
             return
 
-        total = sum(consumo.values())
+        total = sum(float(d['total']) for d in datos_sql)
+
         self.lbl_resumen_total.config(
-            text=f"Total: {int(total)} piezas consumidas")
+            text=f"Total: {int(total):,} pzas  |  {len(datos_sql)} materiales")
 
-        # ── Llenar tabla detalle ──────────────────────────────────────
-        items_ord = sorted(
-            consumo.items(), key=lambda x: x[1], reverse=True)
-
-        for idx, (mat, cant) in enumerate(items_ord, 1):
+        # ── Llenar tabla detalle (todos los materiales, paginado por Treeview) ─
+        # Treeview con scroll ya maneja miles de filas sin problema
+        for idx, d in enumerate(datos_sql, 1):
+            cant = float(d['total'])
             pct  = (cant / total) * 100
-            part = partida_info.get(mat, "—")
-            self.tree_consumo.insert("", END,
-                values=(f"{idx}°", part, mat,
-                        f"{int(cant)}", f"{pct:.1f}%"))
+            self.tree_consumo.insert(
+                "", END,
+                values=(
+                    f"{idx}°",
+                    d['partida'],
+                    d['material'],
+                    f"{int(cant):,}" if cant == int(cant) else f"{cant:,.1f}",
+                    f"{pct:.1f}%"
+                )
+            )
 
-        # ── Preparar datos gráfica (Top 12) ──────────────────────────
-        LIMITE       = 12
-        nombres_g    = [x[0] for x in items_ord[:LIMITE]]
-        cantidades_g = [x[1] for x in items_ord[:LIMITE]]
+        # ── Preparar datos para la gráfica ────────────────────────────
+        # Selector de Top N dinámico
+        TOP_N = getattr(self, '_top_n_grafica', 15)
+
+        nombres_g    = [d['material'] for d in datos_sql[:TOP_N]]
+        cantidades_g = [float(d['total']) for d in datos_sql[:TOP_N]]
+
+        # Invertir para que el mayor quede arriba
         nombres_g.reverse()
         cantidades_g.reverse()
         n = len(nombres_g)
 
+        # ── Colores del tema ──────────────────────────────────────────
         c_prim  = self.tema_actual.get("color_primario", "#3498db")
         c_acent = self.tema_actual.get("color_acento",   "#e74c3c")
         c_fondo = self.tema_actual.get("color_fondo",    "#FFFFFF")
@@ -5360,53 +5706,75 @@ class SistemaInventario:
             for i in range(n)
         ]
 
-        # ── Figura ────────────────────────────────────────────────────
-        fig = Figure(figsize=(6, 4), dpi=100)
+        # ── Tamaño dinámico de figura según número de barras ──────────
+        alto_fig  = max(4.5, n * 0.45)   # mínimo 4.5, crece con los items
+        fig = Figure(figsize=(7, alto_fig), dpi=100)
         fig.patch.set_facecolor(c_fondo)
 
         ax = fig.add_subplot(111)
         ax.set_facecolor(c_fondo)
 
+        # Tamaño de fuente dinámico en etiquetas del eje Y
+        fs_etiquetas = max(6, 9 - (n // 8))
+
         barras = ax.barh(
             nombres_g, [0] * n,
-            color=colores_barras, height=0.65, alpha=0.92)
+            color=colores_barras,
+            height=0.65, alpha=0.92
+        )
+
+        # Truncar nombres largos en el eje Y para que no se monten
+        etiquetas_cortas = [
+            (nom[:35] + "…") if len(nom) > 35 else nom
+            for nom in nombres_g
+        ]
+        ax.set_yticks(range(n))
+        ax.set_yticklabels(etiquetas_cortas, fontsize=fs_etiquetas)
+
+        # Título con cantidad total de materiales
+        titulo_completo = (
+            f"{titulo_grafica}\n"
+            f"(Top {TOP_N} de {len(datos_sql)} materiales)"
+            if len(datos_sql) > TOP_N
+            else titulo_grafica
+        )
 
         ax.set_title(
-            titulo_grafica,
-            fontsize=11, fontweight='bold',
-            color=c_prim, pad=12)
+            titulo_completo,
+            fontsize=10, fontweight='bold',
+            color=c_prim, pad=10)
+
         ax.set_xlabel(
             "Cantidad consumida (Pzas)",
             fontsize=9, color=c_texto)
-        ax.tick_params(colors=c_texto, labelsize=8)
+
+        ax.tick_params(colors=c_texto, labelsize=fs_etiquetas)
 
         for sp in ax.spines.values():
             sp.set_visible(False)
 
-        ax.xaxis.grid(
-            True, color="#DDDDDD",
-            linestyle="--", linewidth=0.7)
+        ax.xaxis.grid(True, color="#DDDDDD", linestyle="--", linewidth=0.7)
         ax.set_axisbelow(True)
 
         max_val = max(cantidades_g) if cantidades_g else 10
-        ax.set_xlim(0, max_val * 1.18)
+        ax.set_xlim(0, max_val * 1.22)
 
-        # Etiquetas al final de barra
+        # Etiquetas al final de barra (número formateado)
         textos_val = []
         for bar, val in zip(barras, cantidades_g):
             txt = ax.text(
                 0,
                 bar.get_y() + bar.get_height() / 2,
-                f" {int(val)} pzas",
+                f" {int(val):,} pzas",
                 va='center', ha='left',
-                fontsize=8, color=c_texto,
-                fontweight='bold')
+                fontsize=max(6, fs_etiquetas),
+                color=c_texto, fontweight='bold')
             textos_val.append((txt, val))
 
         fig.tight_layout(pad=1.5)
 
         # ── Animación ─────────────────────────────────────────────────
-        FRAMES = 35
+        FRAMES = 30   # menos frames = más fluido con muchas barras
 
         def animar(frame):
             progreso = frame / FRAMES
@@ -5417,7 +5785,7 @@ class SistemaInventario:
                 txt.set_x(w)
             return list(barras) + [t for t, _ in textos_val]
 
-        # ── Hover ─────────────────────────────────────────────────────
+        # ── Hover tooltip ─────────────────────────────────────────────
         annot = ax.annotate(
             "", xy=(0, 0), xytext=(8, 8),
             textcoords="offset points",
@@ -5431,8 +5799,7 @@ class SistemaInventario:
                 annot.set_visible(False)
                 fig.canvas.draw_idle()
                 return
-            for bar, (_, val), nom in zip(
-                    barras, textos_val, nombres_g):
+            for bar, (_, val), nom in zip(barras, textos_val, nombres_g):
                 cont, _ = bar.contains(event)
                 if cont:
                     pct_h = (val / total) * 100
@@ -5440,29 +5807,88 @@ class SistemaInventario:
                         bar.get_width(),
                         bar.get_y() + bar.get_height() / 2)
                     annot.set_text(
-                        f"{nom[:30]}\n"
-                        f"{int(val)} pzas  ({pct_h:.1f}%)")
+                        f"{nom[:40]}\n"
+                        f"{int(val):,} pzas  ({pct_h:.1f}%)")
                     annot.set_visible(True)
                     fig.canvas.draw_idle()
                     return
             annot.set_visible(False)
             fig.canvas.draw_idle()
 
-        # ── Dibujar en Tkinter ────────────────────────────────────────
-        canvas = FigureCanvasTkAgg(
-            fig, master=self.fr_grafica_container)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill=BOTH, expand=True)
-        canvas.mpl_connect("motion_notify_event", on_hover)
+        # ── Canvas con scroll vertical para gráficas muy largas ───────
+        fr_canvas_scroll = ttk.Frame(self.fr_grafica_container)
+        fr_canvas_scroll.pack(fill=BOTH, expand=True)
+
+        canvas_scroll = tk.Canvas(
+            fr_canvas_scroll,
+            highlightthickness=0,
+            bg=c_fondo)
+        sc_graf = ttk.Scrollbar(
+            fr_canvas_scroll, orient=VERTICAL,
+            command=canvas_scroll.yview)
+        canvas_scroll.configure(yscrollcommand=sc_graf.set)
+
+        # Solo mostrar scrollbar si hay muchas barras
+        if n > 12:
+            sc_graf.pack(side=RIGHT, fill=Y)
+        canvas_scroll.pack(side=LEFT, fill=BOTH, expand=True)
+
+        # ── Selector Top N ────────────────────────────────────────────
+        fr_top_n = ttk.Frame(self.fr_grafica_container)
+        fr_top_n.pack(fill=X, padx=5, pady=(0, 3))
+
+        ttk.Label(
+            fr_top_n,
+            text=f"Mostrando Top {TOP_N} en gráfica  |  Total: {len(datos_sql)} materiales",
+            font=("Segoe UI", 8), foreground="gray"
+        ).pack(side=LEFT)
+
+        if len(datos_sql) > 10:
+            ttk.Label(fr_top_n, text="   Ver Top:", font=("Segoe UI", 8)).pack(side=LEFT)
+            for n_val in [10, 15, 20, 30]:
+                if n_val <= len(datos_sql):
+                    ttk.Button(
+                        fr_top_n,
+                        text=str(n_val),
+                        bootstyle="link",
+                        width=3,
+                        command=lambda v=n_val: self._cambiar_top_n(v)
+                    ).pack(side=LEFT)
+
+        # ── Dibujar matplotlib en tkinter ─────────────────────────────
+        canvas_mpl = FigureCanvasTkAgg(fig, master=canvas_scroll)
+        canvas_mpl.draw()
+
+        widget_mpl = canvas_mpl.get_tk_widget()
+        canvas_scroll.create_window((0, 0), window=widget_mpl, anchor="nw")
+
+        def configurar_scroll(event):
+            canvas_scroll.configure(scrollregion=canvas_scroll.bbox("all"))
+
+        widget_mpl.bind("<Configure>", configurar_scroll)
+
+        # Scroll con rueda del ratón
+        def _scroll_grafica(event):
+            canvas_scroll.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        canvas_scroll.bind("<Enter>",
+            lambda e: canvas_scroll.bind_all("<MouseWheel>", _scroll_grafica))
+        canvas_scroll.bind("<Leave>",
+            lambda e: canvas_scroll.unbind_all("<MouseWheel>"))
+
+        canvas_mpl.mpl_connect("motion_notify_event", on_hover)
 
         self.mi_animacion = animation.FuncAnimation(
             fig, animar,
             frames=FRAMES + 1,
-            interval=18,
+            interval=20,
             blit=False,
             repeat=False)
-
-
+        
+    def _cambiar_top_n(self, n):
+        """Cambia el Top N de la gráfica y la regenera"""
+        self._top_n_grafica = n
+        self.generar_grafica_consumo()
 
         
     def exportar_excel_consumo(self):
