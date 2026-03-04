@@ -1621,30 +1621,14 @@ class SistemaInventario:
 
         # Un solo binding limpio — Entry no tiene dropdown, no necesita más
         self.cb_busqueda_material.bind('<KeyRelease>', buscar_inventario_realtime)
-        def al_seleccionar_sugerencia(event=None):
-            # Cuando elige una opción del dropdown, recargar tabla
-            self.cargar_tabla_inventario()
+      
 
         # Solo filtra mientras escribe — NO abre dropdown al hacer clic
-        self.cb_busqueda_material.bind('<KeyRelease>',         buscar_inventario_realtime)
-        self.cb_busqueda_material.bind('<<ComboboxSelected>>', al_seleccionar_sugerencia)
+        
+        
 
-        def abrir_buscador_click(event=None):
-            # Al hacer clic, mostrar todos los materiales disponibles
-            rows_mat = self.db.consultar(
-                "SELECT DISTINCT material FROM inventario ORDER BY material ASC"
-            )
-            lista_mat = [r['material'] for r in rows_mat]
-            self.cb_busqueda_material['values'] = lista_mat
-            try:
-                self.cb_busqueda_material.event_generate('<Down>')
-            except:
-                pass
-
-        self.cb_busqueda_material.bind('<KeyRelease>',        buscar_inventario_realtime)
-        self.cb_busqueda_material.bind('<<ComboboxSelected>>', buscar_inventario_realtime)
-        self.cb_busqueda_material.bind('<Button-1>',           abrir_buscador_click)
-        self.cb_busqueda_material.bind('<FocusIn>',            abrir_buscador_click)
+       
+       
 
         ttk.Label(
             fr_top, text="📂 Filtrar Partida:",
@@ -1660,7 +1644,7 @@ class SistemaInventario:
         )
 
         ttk.Button(
-            fr_top, text="🔄 Ver Todo",
+            fr_top, text="🔄 Actualizar",
             bootstyle="link",
             command=self.limpiar_filtros
         ).pack(side=LEFT)
