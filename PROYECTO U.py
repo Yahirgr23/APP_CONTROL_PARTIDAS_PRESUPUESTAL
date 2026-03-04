@@ -1063,28 +1063,22 @@ class SistemaInventario:
             self.fr_grupo_partida.pack(side=LEFT, fill=X)
 
     def limpiar_filtros(self):
-        """
-        Resetea la barra de búsqueda y el filtro de categorías,
-        y vuelve a cargar todo el inventario.
-        """
+        """Limpia buscador y filtro de partida, recarga todo el inventario."""
         try:
-            # 1. Limpiar caja de búsqueda (Si existe la variable)
-            if hasattr(self, 'var_busqueda'):
-                self.var_busqueda.set("")
-            
-            # 2. Resetear ComboBox de Categorías a "TODAS" (Índice 0)
-            if hasattr(self, 'combo_categoria'):
+            # Limpiar el Entry de búsqueda
+            if hasattr(self, 'cb_busqueda_material'):
+                self.cb_busqueda_material.delete(0, 'end')
+
+            # Resetear filtro de partida a TODAS
+            if hasattr(self, 'cb_filtro_partida'):
                 try:
-                    self.combo_categoria.current(0)
-                except: pass
-            
-            # 3. Recargar la tabla de inventario
-            # (El sistema busca la función de carga, ya sea cargar_inventario o cargar_datos)
-            if hasattr(self, 'cargar_inventario'):
-                self.cargar_inventario()
-            elif hasattr(self, 'cargar_datos'):
-                self.cargar_datos()
-                
+                    self.cb_filtro_partida.current(0)
+                except:
+                    pass
+
+            # Recargar inventario completo
+            self.cargar_tabla_inventario()
+
         except Exception as e:
             print(f"Advertencia al limpiar filtros: {e}")
 
@@ -1625,8 +1619,8 @@ class SistemaInventario:
                 return
             self.cargar_tabla_inventario()
 
+        # Un solo binding limpio — Entry no tiene dropdown, no necesita más
         self.cb_busqueda_material.bind('<KeyRelease>', buscar_inventario_realtime)
-
         def al_seleccionar_sugerencia(event=None):
             # Cuando elige una opción del dropdown, recargar tabla
             self.cargar_tabla_inventario()
@@ -2263,6 +2257,10 @@ class SistemaInventario:
         self.cb_partida_k = ttk.Combobox(fr_top, state="readonly", width=15)
         self.cb_partida_k.pack(side=LEFT)
 
+        # Sin event_generate — la flecha nativa abre el dropdown sin bugs
+        self.cb_partida_k.bind('<<ComboboxSelected>>',
+            lambda e: self.cb_partida_k.selection_clear())
+
         ttk.Button(
             fr_top,
             text="🔍 Generar Vista Previa",
@@ -2852,20 +2850,16 @@ class SistemaInventario:
             self.cb_filtro_partida['values'] = lista_p_todas
             if not self.cb_filtro_partida.get():
                 self.cb_filtro_partida.current(0)
-            # Sin event_generate — la flecha nativa abre el dropdown
-            # Al seleccionar recarga la tabla automáticamente
 
-        if hasattr(self, 'cb_partida_consumo'):
-            self.cb_partida_consumo['values'] = lista_p
-            
-            def abrir_partida_k(event=None):
-                self.cb_partida_k['values'] = lista_p
-                try:
-                    self.cb_partida_k.event_generate('<Down>')
-                except:
-                    pass
-            self.cb_partida_k.bind('<Button-1>', abrir_partida_k)
-            self.cb_partida_k.bind('<FocusIn>',  abrir_partida_k)
+        # FIX BUG 3: condición correcta — cb_partida_k es independiente de cb_partida_consumo
+        if hasattr(self, 'cb_partida_k'):
+            lista_pk = ["TODAS"] + lista_p
+            self.cb_partida_k['values'] = lista_pk
+            if not self.cb_partida_k.get():
+                self.cb_partida_k.current(0)
+            # readonly — la flecha nativa lo abre, sin event_generate
+            self.cb_partida_k.bind('<<ComboboxSelected>>',
+                lambda e: self.cb_partida_k.selection_clear())
 
         # 2. ÁREAS
         rows    = self.db.consultar(
@@ -2883,21 +2877,16 @@ class SistemaInventario:
         if hasattr(self, 'cb_jefe_sal'):
             self.setup_autocomplete(self.cb_jefe_sal, lista_j)
 
-        # 4. MATERIALES para buscador de inventario
-        pass
-            
+        # 4. Buscador es Entry — no necesita values
+        # (se filtra en tiempo real con cargar_tabla_inventario)
 
-        # 5. Combo de partidas en consumo
+        # FIX BUG 4: cb_partida_consumo es readonly, sin event_generate
         if hasattr(self, 'cb_partida_consumo'):
             self.cb_partida_consumo['values'] = lista_p
-            def abrir_part_consumo(event=None):
-                self.cb_partida_consumo['values'] = lista_p
-                try:
-                    self.cb_partida_consumo.event_generate('<Down>')
-                except:
-                    pass
-            self.cb_partida_consumo.bind('<Button-1>', abrir_part_consumo)
-            self.cb_partida_consumo.bind('<FocusIn>',  abrir_part_consumo)
+            if not self.cb_partida_consumo.get() and lista_p:
+                self.cb_partida_consumo.current(0)
+            self.cb_partida_consumo.bind('<<ComboboxSelected>>',
+                lambda e: self.cb_partida_consumo.selection_clear())
             
     def abrir_registro_pasado(self):
         """Registro Histórico Manual CON DISEÑO RESPONSIVO"""
