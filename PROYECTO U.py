@@ -1304,6 +1304,388 @@ class SistemaInventario:
 
         # Carga inicial
         combo['values'] = lista_completa
+    # ══════════════════════════════════════════════════════════════════
+    # NAVEGACIÓN COMPLETA POR TECLADO
+    # Agrega este método a la clase SistemaInventario
+    # y llámalo al final de setup_tab_inventario() con:
+    #     self._setup_navegacion_teclado()
+    # ══════════════════════════════════════════════════════════════════
+
+    def _setup_navegacion_teclado(self):
+        """
+        Navegación COMPLETA por teclado — flujo Tab + Enter.
+
+        FLUJO ENTRADAS:
+          Tabla →Enter→ Cantidad →Enter/Tab→ Factura →Enter/Tab→ REGISTRA → regresa Tabla
+
+        FLUJO SALIDAS:
+          Tabla →Enter→ Cantidad →Enter→ agrega carrito
+          →Tab→ Área →Tab→ Solicita →Tab→ Autoriza
+          →Tab→ regresa Tabla
+
+        GLOBAL:
+          Shift+Tab  sube en tabla / regresa al buscador desde fila 1
+          F1         activa pestaña Entradas + foco Cantidad
+          F2         activa pestaña Salidas  + foco Cantidad
+          Escape     regresa al Buscador desde cualquier widget
+        """
+
+        # ─────────────────────────────────────────────────────────────
+        # UTILIDADES
+        # ─────────────────────────────────────────────────────────────
+
+        def _ir_cantidad_activa():
+            if not hasattr(self, 'nb_acciones'):
+                return
+            try:
+                tab_idx = self.nb_acciones.index("current")
+            except Exception:
+                return
+            if tab_idx == 0 and hasattr(self, 'ent_cant_ent'):
+                self.ent_cant_ent.focus_set()
+                self.ent_cant_ent.selection_range(0, "end")
+            elif tab_idx == 1 and hasattr(self, 'ent_cant_sal'):
+                self.ent_cant_sal.focus_set()
+                self.ent_cant_sal.selection_range(0, "end")
+            elif tab_idx == 2 and hasattr(self, 'cb_partida'):
+                self.cb_partida.focus_set()
+
+        def _seleccionar_fila(item):
+            self.tree_inv.selection_set(item)
+            self.tree_inv.focus(item)
+            self.tree_inv.see(item)
+            self.on_tree_select(None)
+
+        def _escape_al_buscador(event=None):
+            self.cb_busqueda_material.focus_set()
+            self.cb_busqueda_material.selection_range(0, "end")
+            return "break"
+
+        # ─────────────────────────────────────────────────────────────
+        # 1. BUSCADOR
+        # ─────────────────────────────────────────────────────────────
+
+        def _buscador_tab(event):
+            items = self.tree_inv.get_children()
+            if items:
+                sel = self.tree_inv.selection()
+                if not sel:
+                    _seleccionar_fila(items[0])
+                else:
+                    self.tree_inv.focus(sel[0])
+            self.tree_inv.focus_set()
+            return "break"
+
+        def _buscador_enter(event):
+            self.cargar_tabla_inventario()
+            items = self.tree_inv.get_children()
+            if items:
+                _seleccionar_fila(items[0])
+            self.tree_inv.focus_set()
+            return "break"
+
+        self.cb_busqueda_material.bind("<Tab>",    _buscador_tab)
+        self.cb_busqueda_material.bind("<Return>", _buscador_enter)
+        self.cb_busqueda_material.bind("<Escape>", _escape_al_buscador)
+
+        # ─────────────────────────────────────────────────────────────
+        # 2. TABLA DE INVENTARIO
+        # ─────────────────────────────────────────────────────────────
+
+        def _tabla_down(event):
+            items = self.tree_inv.get_children()
+            if not items:
+                return "break"
+            sel = self.tree_inv.selection()
+            if not sel:
+                _seleccionar_fila(items[0])
+            else:
+                idx = list(items).index(sel[0])
+                _seleccionar_fila(items[min(idx + 1, len(items) - 1)])
+            return "break"
+
+        def _tabla_up(event):
+            items = self.tree_inv.get_children()
+            if not items:
+                return "break"
+            sel = self.tree_inv.selection()
+            if not sel:
+                _seleccionar_fila(items[-1])
+                return "break"
+            idx = list(items).index(sel[0])
+            if idx == 0:
+                _escape_al_buscador()
+                return "break"
+            _seleccionar_fila(items[idx - 1])
+            return "break"
+
+        def _tabla_enter(event):
+            if not self.tree_inv.selection():
+                return "break"
+            _ir_cantidad_activa()
+            return "break"
+
+        self.tree_inv.bind("<Tab>",       _tabla_down)
+        self.tree_inv.bind("<Shift-Tab>", _tabla_up)
+        self.tree_inv.bind("<Down>",      _tabla_down)
+        self.tree_inv.bind("<Up>",        _tabla_up)
+        self.tree_inv.bind("<Return>",    _tabla_enter)
+        self.tree_inv.bind("<Escape>",    _escape_al_buscador)
+
+        def _tabla_f1(event):
+            if hasattr(self, 'nb_acciones'):
+                self.nb_acciones.select(0)
+            if self.tree_inv.selection() and hasattr(self, 'ent_cant_ent'):
+                self.ent_cant_ent.focus_set()
+                self.ent_cant_ent.selection_range(0, "end")
+            return "break"
+
+        def _tabla_f2(event):
+            if hasattr(self, 'nb_acciones'):
+                self.nb_acciones.select(1)
+            if self.tree_inv.selection() and hasattr(self, 'ent_cant_sal'):
+                self.ent_cant_sal.focus_set()
+                self.ent_cant_sal.selection_range(0, "end")
+            return "break"
+
+        self.tree_inv.bind("<F1>", _tabla_f1)
+        self.tree_inv.bind("<F2>", _tabla_f2)
+
+        # ─────────────────────────────────────────────────────────────
+        # 3. PESTAÑA ENTRADAS
+        #
+        # FLUJO:
+        #   Cantidad →Enter/Tab→ Factura →Enter/Tab→ REGISTRA → Tabla
+        # ─────────────────────────────────────────────────────────────
+        if hasattr(self, 'ent_cant_ent'):
+
+            def _cant_ent_enter(event):
+                """
+                Enter en Cantidad entrada:
+                  - Si tiene valor → baja a Factura/Referencia.
+                  - Si está vacío  → no hace nada.
+                """
+                if not self.tree_inv.selection():
+                    self.tree_inv.focus_set()
+                    return "break"
+                if not self.ent_cant_ent.get().strip():
+                    return "break"
+                # Bajar a Factura
+                if hasattr(self, 'ent_factura_ent'):
+                    self.ent_factura_ent.focus_set()
+                    self.ent_factura_ent.selection_range(0, "end")
+                return "break"
+
+            def _cant_ent_tab(event):
+                """Tab → Factura."""
+                if hasattr(self, 'ent_factura_ent'):
+                    self.ent_factura_ent.focus_set()
+                    self.ent_factura_ent.selection_range(0, "end")
+                return "break"
+
+            def _cant_ent_shift_tab(event):
+                """Shift+Tab → regresa a la tabla."""
+                self.tree_inv.focus_set()
+                return "break"
+
+            self.ent_cant_ent.bind("<Return>",    _cant_ent_enter)
+            self.ent_cant_ent.bind("<Tab>",       _cant_ent_tab)
+            self.ent_cant_ent.bind("<Shift-Tab>", _cant_ent_shift_tab)
+            self.ent_cant_ent.bind("<Escape>",    _escape_al_buscador)
+
+        if hasattr(self, 'ent_factura_ent'):
+
+            def _fac_ent_enter(event):
+                """
+                Enter en Factura → REGISTRA la entrada y regresa a la tabla.
+                """
+                if not self.tree_inv.selection():
+                    self.tree_inv.focus_set()
+                    return "break"
+                if not self.ent_cant_ent.get().strip():
+                    self.ent_cant_ent.focus_set()
+                    return "break"
+                self.procesar_movimiento("ENTRADA")
+                self.tree_inv.focus_set()
+                return "break"
+
+            def _fac_ent_tab(event):
+                """Tab desde Factura → REGISTRA y regresa a tabla."""
+                if not self.tree_inv.selection():
+                    self.tree_inv.focus_set()
+                    return "break"
+                if not self.ent_cant_ent.get().strip():
+                    self.tree_inv.focus_set()
+                    return "break"
+                self.procesar_movimiento("ENTRADA")
+                self.tree_inv.focus_set()
+                return "break"
+
+            def _fac_ent_shift_tab(event):
+                """Shift+Tab → regresa a Cantidad."""
+                if hasattr(self, 'ent_cant_ent'):
+                    self.ent_cant_ent.focus_set()
+                    self.ent_cant_ent.selection_range(0, "end")
+                return "break"
+
+            self.ent_factura_ent.bind("<Return>",    _fac_ent_enter)
+            self.ent_factura_ent.bind("<Tab>",       _fac_ent_tab)
+            self.ent_factura_ent.bind("<Shift-Tab>", _fac_ent_shift_tab)
+            self.ent_factura_ent.bind("<Escape>",    _escape_al_buscador)
+
+        # ─────────────────────────────────────────────────────────────
+        # 4. PESTAÑA SALIDAS
+        #
+        # FLUJO:
+        #   Cantidad →Enter→ agrega carrito → sube a Área
+        #   Área →Enter/Tab→ Solicita →Enter/Tab→ Autoriza
+        #   Autoriza →Tab→ regresa Tabla
+        #   Autoriza →Enter→ pregunta si registrar vale
+        # ─────────────────────────────────────────────────────────────
+        if hasattr(self, 'ent_cant_sal'):
+
+            def _cant_sal_enter(event):
+                """Enter en cantidad salida → agrega al carrito → sube a Área."""
+                if not self.tree_inv.selection():
+                    self.tree_inv.focus_set()
+                    return "break"
+                if not self.ent_cant_sal.get().strip():
+                    return "break"
+                self.agregar_al_carrito()
+                if hasattr(self, 'cb_area_sal'):
+                    self.cb_area_sal.focus_set()
+                return "break"
+
+            def _cant_sal_tab(event):
+                """Tab → Área."""
+                if hasattr(self, 'cb_area_sal'):
+                    self.cb_area_sal.focus_set()
+                return "break"
+
+            def _cant_sal_shift_tab(event):
+                """Shift+Tab → regresa a tabla."""
+                self.tree_inv.focus_set()
+                return "break"
+
+            self.ent_cant_sal.bind("<Return>",    _cant_sal_enter)
+            self.ent_cant_sal.bind("<Tab>",       _cant_sal_tab)
+            self.ent_cant_sal.bind("<Shift-Tab>", _cant_sal_shift_tab)
+            self.ent_cant_sal.bind("<Escape>",    _escape_al_buscador)
+
+        # ── Área / Destino ────────────────────────────────────────────
+        if hasattr(self, 'cb_area_sal'):
+
+            def _area_tab(event):
+                if hasattr(self, 'ent_resp_sal'):
+                    self.ent_resp_sal.focus_set()
+                return "break"
+
+            def _area_shift_tab(event):
+                if hasattr(self, 'ent_cant_sal'):
+                    self.ent_cant_sal.focus_set()
+                    self.ent_cant_sal.selection_range(0, "end")
+                return "break"
+
+            def _area_enter(event):
+                if hasattr(self, 'ent_resp_sal'):
+                    self.ent_resp_sal.focus_set()
+                return "break"
+
+            self.cb_area_sal.bind("<Tab>",       _area_tab)
+            self.cb_area_sal.bind("<Shift-Tab>", _area_shift_tab)
+            self.cb_area_sal.bind("<Return>",    _area_enter)
+            self.cb_area_sal.bind("<Escape>",    _escape_al_buscador)
+
+        # ── Solicita (Nombre) ─────────────────────────────────────────
+        if hasattr(self, 'ent_resp_sal'):
+
+            def _resp_tab(event):
+                if hasattr(self, 'cb_jefe_sal'):
+                    self.cb_jefe_sal.focus_set()
+                return "break"
+
+            def _resp_shift_tab(event):
+                if hasattr(self, 'cb_area_sal'):
+                    self.cb_area_sal.focus_set()
+                return "break"
+
+            def _resp_enter(event):
+                if hasattr(self, 'cb_jefe_sal'):
+                    self.cb_jefe_sal.focus_set()
+                return "break"
+
+            self.ent_resp_sal.bind("<Tab>",       _resp_tab)
+            self.ent_resp_sal.bind("<Shift-Tab>", _resp_shift_tab)
+            self.ent_resp_sal.bind("<Return>",    _resp_enter)
+            self.ent_resp_sal.bind("<Escape>",    _escape_al_buscador)
+
+        # ── Autoriza / Entrega ────────────────────────────────────────
+        if hasattr(self, 'cb_jefe_sal'):
+
+            def _jefe_tab(event):
+                """Tab desde Autoriza → regresa a tabla (agregar más materiales)."""
+                self.tree_inv.focus_set()
+                return "break"
+
+            def _jefe_shift_tab(event):
+                if hasattr(self, 'ent_resp_sal'):
+                    self.ent_resp_sal.focus_set()
+                return "break"
+
+            def _jefe_enter(event):
+                """
+                Enter en Autoriza:
+                  - Con carrito lleno → pregunta si registrar el vale.
+                  - Sin carrito       → regresa a tabla.
+                """
+                if self._carrito:
+                    from tkinter import messagebox as mb
+                    if mb.askyesno(
+                        "¿Registrar Vale de Salida?",
+                        f"Hay {len(self._carrito)} material(es) en el carrito.\n\n"
+                        "¿Deseas REGISTRAR el vale ahora?\n"
+                        "(No = regresar a tabla para agregar más materiales)"
+                    ):
+                        self.procesar_salida_multiple()
+                        return "break"
+                self.tree_inv.focus_set()
+                return "break"
+
+            self.cb_jefe_sal.bind("<Tab>",       _jefe_tab)
+            self.cb_jefe_sal.bind("<Shift-Tab>", _jefe_shift_tab)
+            self.cb_jefe_sal.bind("<Return>",    _jefe_enter)
+            self.cb_jefe_sal.bind("<Escape>",    _escape_al_buscador)
+
+        # ─────────────────────────────────────────────────────────────
+        # 5. TOOLTIP EN LA TABLA
+        # ─────────────────────────────────────────────────────────────
+        try:
+            from ttkbootstrap.widgets import ToolTip
+            ToolTip(
+                self.tree_inv,
+                text=(
+                    "Tab / ↓  Bajar fila  |  Shift+Tab / ↑  Subir fila\n"
+                    "Enter → Ir a Cantidad  |  Esc → Buscador\n"
+                    "F1 → Entradas  |  F2 → Salidas"
+                )
+            )
+        except Exception:
+            pass
+
+        # ─────────────────────────────────────────────────────────────
+        # 6. FOCO INICIAL
+        # ─────────────────────────────────────────────────────────────
+        def _foco_pestana_inventario(event):
+            try:
+                if self.notebook.index("current") == self.notebook.index(self.tab_inv):
+                    self.root.after(50, self.cb_busqueda_material.focus_set)
+            except Exception:
+                pass
+
+        self.notebook.bind("<<NotebookTabChanged>>", _foco_pestana_inventario)
+        self.root.after(300, lambda: self.cb_busqueda_material.focus_set())
+
+
 
     def setup_tab_inventario(self):
         rol_actual = self.usuario.get('rol', 'OPERADOR')
@@ -1597,6 +1979,7 @@ class SistemaInventario:
             )
             self.lbl_stock_actual.pack(pady=(4, 0))
 
+
         # ════════════════════════════════════════════════════════════
         # PANEL DERECHO: TABLA DE INVENTARIO (igual para todos)
         # ════════════════════════════════════════════════════════════
@@ -1613,6 +1996,7 @@ class SistemaInventario:
 
         self.cb_busqueda_material = ttk.Entry(fr_top, width=30)
         self.cb_busqueda_material.pack(side=LEFT, padx=5)
+        
 
         def buscar_inventario_realtime(event=None):
             if event and event.keysym in ('Tab', 'Escape', 'Return'):
@@ -1711,6 +2095,8 @@ class SistemaInventario:
                     self.tiene_permiso('eliminar') or
                     self.usuario.get('rol') == 'ADMIN'):
                 self.tree_inv.bind("<Button-3>", mostrar_menu_inv)
+
+        self._setup_navegacion_teclado()
 
 
     # ══════════════════════════════════════════════════════════════════
