@@ -3822,156 +3822,365 @@ class SistemaInventario:
 
         top = tk.Toplevel(self.root)
         top.title("Configuración Visual y de Reportes")
-        # Ventana un poco más grande para que quepa la nueva sección
-        self.centrar_ventana_emergente(top, 900, 750) 
+        self.centrar_ventana_emergente(top, 900, 750)
 
         # Contenedor con Scroll
         canvas = tk.Canvas(top, highlightthickness=0)
         scrollbar = ttk.Scrollbar(top, orient=VERTICAL, command=canvas.yview)
-        fr = ttk.Frame(canvas, padding=30) 
+        fr = ttk.Frame(canvas, padding=30)
 
         scrollable_window = canvas.create_window((0, 0), window=fr, anchor="nw")
 
         def configure_scroll_region(event):
             canvas.configure(scrollregion=canvas.bbox("all"))
             canvas.itemconfig(scrollable_window, width=canvas.winfo_width())
-        
+
         canvas.bind("<Configure>", configure_scroll_region)
         fr.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side=LEFT, fill=BOTH, expand=True)
         scrollbar.pack(side=RIGHT, fill=Y)
 
-        # --- CONTENIDO ---
-        ttk.Label(fr, text="Personalización del Sistema", font=("Segoe UI", 18, "bold"), bootstyle="primary").pack(pady=(0, 20), anchor=CENTER)
+        # Scroll con rueda del mouse
+        def _scroll_ajustes(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-        # ========================================================
-        # SECCIÓN 1: LOGOTIPOS (DISTRIBUCIÓN HORIZONTAL)
-        # ========================================================
-        fr_imgs = ttk.LabelFrame(fr, text=" 🖼️ Logotipos del Sistema ", padding=15, bootstyle="info")
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _scroll_ajustes))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        # ── Título principal ───────────────────────────────────────────────
+        ttk.Label(
+            fr,
+            text="Personalización del Sistema",
+            font=("Segoe UI", 18, "bold"),
+            bootstyle="primary"
+        ).pack(pady=(0, 20), anchor=CENTER)
+
+        # ================================================================
+        # SECCIÓN 1: LOGOTIPOS
+        # ================================================================
+        fr_imgs = ttk.LabelFrame(
+            fr,
+            text=" 🖼️ Logotipos del Sistema ",
+            padding=15,
+            bootstyle="info"
+        )
         fr_imgs.pack(fill=X, pady=10)
 
-        f_izq = ttk.Frame(fr_imgs); f_izq.pack(side=LEFT, fill=BOTH, expand=True, padx=(0, 10))
-        f_der = ttk.Frame(fr_imgs); f_der.pack(side=LEFT, fill=BOTH, expand=True, padx=(10, 0))
+        f_izq = ttk.Frame(fr_imgs)
+        f_izq.pack(side=LEFT, fill=BOTH, expand=True, padx=(0, 10))
 
-        ttk.Label(f_izq, text="Logo Interfaz (Pantalla):", font=("Segoe UI", 9, "bold")).pack(anchor=W)
+        f_der = ttk.Frame(fr_imgs)
+        f_der.pack(side=LEFT, fill=BOTH, expand=True, padx=(10, 0))
+
+        # ── Logo Interfaz (Pantalla) ───────────────────────────────────────
+        ttk.Label(
+            f_izq,
+            text="Logo Interfaz (Pantalla):",
+            font=("Segoe UI", 9, "bold")
+        ).pack(anchor=W)
+
+        self._lbl_prev_app = ttk.Label(
+            f_izq,
+            text="Sin imagen cargada",
+            foreground="gray",
+            font=("Segoe UI", 8)
+        )
+        self._lbl_prev_app.pack(anchor=W, pady=(2, 4))
+
         cont_l1 = ttk.Frame(f_izq)
         cont_l1.pack(fill=X, pady=5)
-        self.e_logo_app = ttk.Entry(cont_l1)
-        self.e_logo_app.pack(side=LEFT, fill=X, expand=True, padx=(0,5))
-        def b_app():
-            r = filedialog.askopenfilename(parent=top, filetypes=[("Imágenes", "*.png;*.jpg;*.ico")])
-            if r: self.e_logo_app.delete(0, END); self.e_logo_app.insert(0, r); top.lift()
-        ttk.Button(cont_l1, text="📂 Buscar", command=b_app).pack(side=LEFT)
 
-        ttk.Label(f_der, text="Logo Reportes (PDF/Excel):", font=("Segoe UI", 9, "bold")).pack(anchor=W)
+        self.e_logo_app = ttk.Entry(cont_l1)
+        self.e_logo_app.pack(side=LEFT, fill=X, expand=True, padx=(0, 5))
+
+        def _actualizar_preview_app(ruta):
+            try:
+                if ruta and os.path.exists(ruta):
+                    img = Image.open(ruta).copy()
+                    img.thumbnail((60, 60), Image.LANCZOS)
+                    img_rgba = img.convert("RGBA")
+                    fondo = Image.new("RGBA", img_rgba.size, "#FFFFFF")
+                    fondo.paste(img_rgba, mask=img_rgba.split()[3])
+                    self._tk_prev_app = ImageTk.PhotoImage(
+                        fondo.convert("RGB"), master=top
+                    )
+                    self._lbl_prev_app.configure(
+                        image=self._tk_prev_app,
+                        text=""
+                    )
+                else:
+                    self._lbl_prev_app.configure(
+                        image="",
+                        text="Sin imagen cargada"
+                    )
+            except Exception as e:
+                self._lbl_prev_app.configure(
+                    image="",
+                    text=f"⚠ Error al cargar: {str(e)[:40]}"
+                )
+
+        def b_app():
+            r = filedialog.askopenfilename(
+                parent=top,
+                title="Seleccionar Logo de Interfaz",
+                filetypes=[("Imágenes", "*.png;*.jpg;*.jpeg;*.ico;*.bmp")]
+            )
+            if r:
+                self.e_logo_app.delete(0, END)
+                self.e_logo_app.insert(0, r)
+                _actualizar_preview_app(r)
+            top.lift()
+            top.focus_force()
+
+        ttk.Button(
+            cont_l1,
+            text="📂 Buscar",
+            command=b_app
+        ).pack(side=LEFT)
+
+        # ── Logo Reportes (PDF/Excel) ──────────────────────────────────────
+        ttk.Label(
+            f_der,
+            text="Logo Reportes (PDF/Excel):",
+            font=("Segoe UI", 9, "bold")
+        ).pack(anchor=W)
+
+        self._lbl_prev_pdf = ttk.Label(
+            f_der,
+            text="Sin imagen cargada",
+            foreground="gray",
+            font=("Segoe UI", 8)
+        )
+        self._lbl_prev_pdf.pack(anchor=W, pady=(2, 4))
+
         cont_l2 = ttk.Frame(f_der)
         cont_l2.pack(fill=X, pady=5)
-        self.e_logo_pdf = ttk.Entry(cont_l2)
-        self.e_logo_pdf.pack(side=LEFT, fill=X, expand=True, padx=(0,5))
-        def b_pdf():
-            r = filedialog.askopenfilename(parent=top, filetypes=[("Imágenes", "*.png;*.jpg;*.jpeg")])
-            if r: self.e_logo_pdf.delete(0, END); self.e_logo_pdf.insert(0, r); top.lift()
-        ttk.Button(cont_l2, text="📂 Buscar", command=b_pdf).pack(side=LEFT)
 
-        # ========================================================
-        # SECCIÓN 2: TÍTULOS (DISTRIBUCIÓN HORIZONTAL)
-        # ========================================================
-        fr_txt = ttk.LabelFrame(fr, text=" 🏷️ Títulos de la Ventana ", padding=15, bootstyle="secondary")
+        self.e_logo_pdf = ttk.Entry(cont_l2)
+        self.e_logo_pdf.pack(side=LEFT, fill=X, expand=True, padx=(0, 5))
+
+        def _actualizar_preview_pdf(ruta):
+            try:
+                if ruta and os.path.exists(ruta):
+                    img = Image.open(ruta).copy()
+                    img.thumbnail((60, 60), Image.LANCZOS)
+                    img_rgba = img.convert("RGBA")
+                    fondo = Image.new("RGBA", img_rgba.size, "#FFFFFF")
+                    fondo.paste(img_rgba, mask=img_rgba.split()[3])
+                    self._tk_prev_pdf = ImageTk.PhotoImage(
+                        fondo.convert("RGB"), master=top
+                    )
+                    self._lbl_prev_pdf.configure(
+                        image=self._tk_prev_pdf,
+                        text=""
+                    )
+                else:
+                    self._lbl_prev_pdf.configure(
+                        image="",
+                        text="Sin imagen cargada"
+                    )
+            except Exception as e:
+                self._lbl_prev_pdf.configure(
+                    image="",
+                    text=f"⚠ Error al cargar: {str(e)[:40]}"
+                )
+
+        def b_pdf():
+            r = filedialog.askopenfilename(
+                parent=top,
+                title="Seleccionar Logo para PDF/Excel",
+                filetypes=[("Imágenes", "*.png;*.jpg;*.jpeg;*.bmp")]
+            )
+            if r:
+                self.e_logo_pdf.delete(0, END)
+                self.e_logo_pdf.insert(0, r)
+                _actualizar_preview_pdf(r)
+            top.lift()
+            top.focus_force()
+
+        ttk.Button(
+            cont_l2,
+            text="📂 Buscar",
+            command=b_pdf
+        ).pack(side=LEFT)
+
+        # ================================================================
+        # SECCIÓN 2: TÍTULOS DE LA VENTANA
+        # ================================================================
+        fr_txt = ttk.LabelFrame(
+            fr,
+            text=" 🏷️ Títulos de la Ventana ",
+            padding=15,
+            bootstyle="secondary"
+        )
         fr_txt.pack(fill=X, pady=10)
 
-        f_t1 = ttk.Frame(fr_txt); f_t1.pack(side=LEFT, fill=BOTH, expand=True, padx=(0, 10))
-        f_t2 = ttk.Frame(fr_txt); f_t2.pack(side=LEFT, fill=BOTH, expand=True, padx=(10, 0))
+        f_t1 = ttk.Frame(fr_txt)
+        f_t1.pack(side=LEFT, fill=BOTH, expand=True, padx=(0, 10))
 
-        ttk.Label(f_t1, text="Título Principal (Barra Superior):", font=("Segoe UI", 9, "bold")).pack(anchor=W)
-        self.e_titulo = ttk.Entry(f_t1); self.e_titulo.pack(fill=X, pady=5)
+        f_t2 = ttk.Frame(fr_txt)
+        f_t2.pack(side=LEFT, fill=BOTH, expand=True, padx=(10, 0))
 
-        ttk.Label(f_t2, text="Subtítulo (Descripción):", font=("Segoe UI", 9, "bold")).pack(anchor=W)
-        self.e_subtitulo = ttk.Entry(f_t2); self.e_subtitulo.pack(fill=X, pady=5)
+        ttk.Label(
+            f_t1,
+            text="Título Principal (Barra Superior):",
+            font=("Segoe UI", 9, "bold")
+        ).pack(anchor=W)
+        self.e_titulo = ttk.Entry(f_t1)
+        self.e_titulo.pack(fill=X, pady=5)
 
-        # ========================================================
-        # SECCIÓN 3: ENCABEZADOS DE REPORTES (ANCHO COMPLETO)
-        # ========================================================
-        fr_rep = ttk.LabelFrame(fr, text=" 📄 Membrete / Encabezados (Excel y PDF) ", padding=15, bootstyle="warning")
+        ttk.Label(
+            f_t2,
+            text="Subtítulo (Descripción):",
+            font=("Segoe UI", 9, "bold")
+        ).pack(anchor=W)
+        self.e_subtitulo = ttk.Entry(f_t2)
+        self.e_subtitulo.pack(fill=X, pady=5)
+
+        # ================================================================
+        # SECCIÓN 3: ENCABEZADOS DE REPORTES
+        # ================================================================
+        fr_rep = ttk.LabelFrame(
+            fr,
+            text=" 📄 Membrete / Encabezados (Excel y PDF) ",
+            padding=15,
+            bootstyle="warning"
+        )
         fr_rep.pack(fill=X, pady=10)
-        
         fr_rep.columnconfigure(1, weight=1)
 
-        ttk.Label(fr_rep, text="Línea 1 (Institución):").grid(row=0, column=0, sticky=W, pady=5)
-        self.e_h1 = ttk.Entry(fr_rep); self.e_h1.grid(row=0, column=1, sticky=EW, padx=10, pady=5)
-        
-        ttk.Label(fr_rep, text="Línea 2 (Sub-Institución):").grid(row=1, column=0, sticky=W, pady=5)
-        self.e_h2 = ttk.Entry(fr_rep); self.e_h2.grid(row=1, column=1, sticky=EW, padx=10, pady=5)
-        
-        ttk.Label(fr_rep, text="Línea 3 (Dirección General):").grid(row=2, column=0, sticky=W, pady=5)
-        self.e_h3 = ttk.Entry(fr_rep); self.e_h3.grid(row=2, column=1, sticky=EW, padx=10, pady=5)
-        
-        ttk.Label(fr_rep, text="Línea 4 (Unidad/Depto):").grid(row=3, column=0, sticky=W, pady=5)
-        self.e_h4 = ttk.Entry(fr_rep); self.e_h4.grid(row=3, column=1, sticky=EW, padx=10, pady=5)
+        ttk.Label(fr_rep, text="Línea 1 (Institución):").grid(
+            row=0, column=0, sticky=W, pady=5
+        )
+        self.e_h1 = ttk.Entry(fr_rep)
+        self.e_h1.grid(row=0, column=1, sticky=EW, padx=10, pady=5)
 
-        # ========================================================
-        # SECCIÓN 4: INFORMACIÓN DE LA BASE DE DATOS (SOLO ADMIN)
-        # ========================================================
+        ttk.Label(fr_rep, text="Línea 2 (Sub-Institución):").grid(
+            row=1, column=0, sticky=W, pady=5
+        )
+        self.e_h2 = ttk.Entry(fr_rep)
+        self.e_h2.grid(row=1, column=1, sticky=EW, padx=10, pady=5)
+
+        ttk.Label(fr_rep, text="Línea 3 (Dirección General):").grid(
+            row=2, column=0, sticky=W, pady=5
+        )
+        self.e_h3 = ttk.Entry(fr_rep)
+        self.e_h3.grid(row=2, column=1, sticky=EW, padx=10, pady=5)
+
+        ttk.Label(fr_rep, text="Línea 4 (Unidad/Depto):").grid(
+            row=3, column=0, sticky=W, pady=5
+        )
+        self.e_h4 = ttk.Entry(fr_rep)
+        self.e_h4.grid(row=3, column=1, sticky=EW, padx=10, pady=5)
+
+        # ================================================================
+        # SECCIÓN 4: BASE DE DATOS (SOLO ADMIN)
+        # ================================================================
         if self.usuario.get('rol') == 'ADMIN':
-            fr_db = ttk.LabelFrame(fr, text=" 🗄️ Ruta de la Base de Datos (Modo Admin) ", padding=15, bootstyle="danger")
+            fr_db = ttk.LabelFrame(
+                fr,
+                text=" 🗄️ Ruta de la Base de Datos (Modo Admin) ",
+                padding=15,
+                bootstyle="danger"
+            )
             fr_db.pack(fill=X, pady=10)
 
-            ttk.Label(fr_db, text="El sistema está conectado actualmente al siguiente archivo:", font=("Segoe UI", 9)).pack(anchor=W, pady=(0,5))
-            
+            ttk.Label(
+                fr_db,
+                text="El sistema está conectado actualmente al siguiente archivo:",
+                font=("Segoe UI", 9)
+            ).pack(anchor=W, pady=(0, 5))
+
             e_ruta_db = ttk.Entry(fr_db, font=("Consolas", 10, "bold"))
             e_ruta_db.pack(fill=X, pady=5)
-            # Insertamos la ruta real que está usando el gestor
-            e_ruta_db.insert(0, self.db.ruta_db) 
-            e_ruta_db.configure(state="readonly") # Para que puedan copiarlo pero no borrarlo
+            e_ruta_db.insert(0, self.db.ruta_db)
+            e_ruta_db.configure(state="readonly")
 
             def abrir_carpeta_db():
                 directorio = os.path.dirname(self.db.ruta_db)
-                if not directorio: directorio = os.getcwd()
+                if not directorio:
+                    directorio = os.getcwd()
                 if os.path.exists(directorio):
                     os.startfile(directorio)
                 else:
-                    messagebox.showwarning("Aviso", "La carpeta no se puede abrir directamente.")
+                    messagebox.showwarning(
+                        "Aviso",
+                        "La carpeta no se puede abrir directamente."
+                    )
 
-            ttk.Button(fr_db, text="📂 Abrir ubicación del archivo", bootstyle="outline-danger", command=abrir_carpeta_db).pack(anchor=E, pady=(5,0))
+            ttk.Button(
+                fr_db,
+                text="📂 Abrir ubicación del archivo",
+                bootstyle="outline-danger",
+                command=abrir_carpeta_db
+            ).pack(anchor=E, pady=(5, 0))
 
-        # --- CARGA DE DATOS ---
-        self.e_logo_app.insert(0, self.db.get_config("LOGO_APP") or "")
-        self.e_logo_pdf.insert(0, self.db.get_config("LOGO_PDF") or "")
+        # ── Cargar valores actuales desde la BD ────────────────────────────
+        val_logo_app = self.db.get_config("LOGO_APP") or ""
+        val_logo_pdf = self.db.get_config("LOGO_PDF") or ""
+
+        self.e_logo_app.insert(0, val_logo_app)
+        self.e_logo_pdf.insert(0, val_logo_pdf)
         self.e_titulo.insert(0, self.db.get_config("TITULO_APP") or "SISTEMA INVENTARIO")
         self.e_subtitulo.insert(0, self.db.get_config("SUBTITULO_APP") or "CONTROL DE STOCK")
-        
         self.e_h1.insert(0, self.db.get_config("HEADER_L1") or "SECRETARÍA DE MARINA")
         self.e_h2.insert(0, self.db.get_config("HEADER_L2") or "SUBSECRETARÍA DE MARINA")
         self.e_h3.insert(0, self.db.get_config("HEADER_L3") or "DIRECCIÓN GENERAL DE INDUSTRIA NAVAL")
         self.e_h4.insert(0, self.db.get_config("HEADER_L4") or "UNIDAD DE INVESTIGACIÓN Y DESARROLLO TECNOLÓGICO")
 
-        # --- GUARDAR ---
+        # Cargar previews de las imágenes ya guardadas al abrir la ventana
+        top.after(100, lambda: _actualizar_preview_app(val_logo_app))
+        top.after(150, lambda: _actualizar_preview_pdf(val_logo_pdf))
+
+        # ── Botón Guardar ──────────────────────────────────────────────────
         def guardar_cambios():
-            self.db.set_config("LOGO_APP", self.e_logo_app.get().strip())
-            self.db.set_config("LOGO_PDF", self.e_logo_pdf.get().strip())
-            self.db.set_config("TITULO_APP", self.e_titulo.get().strip())
+            logo_app_val = self.e_logo_app.get().strip()
+            logo_pdf_val = self.e_logo_pdf.get().strip()
+
+            # Validar que los archivos existan si se especificaron
+            if logo_app_val and not os.path.exists(logo_app_val):
+                messagebox.showwarning(
+                    "⚠ Logo no encontrado",
+                    f"El archivo de Logo de Interfaz no existe:\n\n"
+                    f"{logo_app_val}\n\n"
+                    "Verifica la ruta o usa el botón 'Buscar'.",
+                    parent=top
+                )
+                top.lift()
+                return
+
+            if logo_pdf_val and not os.path.exists(logo_pdf_val):
+                messagebox.showwarning(
+                    "⚠ Logo no encontrado",
+                    f"El archivo de Logo PDF/Excel no existe:\n\n"
+                    f"{logo_pdf_val}\n\n"
+                    "Verifica la ruta o usa el botón 'Buscar'.",
+                    parent=top
+                )
+                top.lift()
+                return
+
+            # Guardar todos los valores en la BD
+            self.db.set_config("LOGO_APP",      logo_app_val)
+            self.db.set_config("LOGO_PDF",      logo_pdf_val)
+            self.db.set_config("TITULO_APP",    self.e_titulo.get().strip())
             self.db.set_config("SUBTITULO_APP", self.e_subtitulo.get().strip())
-            
-            self.db.set_config("HEADER_L1", self.e_h1.get().strip())
-            self.db.set_config("HEADER_L2", self.e_h2.get().strip())
-            self.db.set_config("HEADER_L3", self.e_h3.get().strip())
-            self.db.set_config("HEADER_L4", self.e_h4.get().strip())
+            self.db.set_config("HEADER_L1",     self.e_h1.get().strip())
+            self.db.set_config("HEADER_L2",     self.e_h2.get().strip())
+            self.db.set_config("HEADER_L3",     self.e_h3.get().strip())
+            self.db.set_config("HEADER_L4",     self.e_h4.get().strip())
 
-            if messagebox.askyesno("Reiniciar", "Configuración guardada.\n¿Reiniciar sistema ahora para ver cambios?"):
-                import sys, subprocess
-                top.destroy(); self.root.destroy()
-                script = f'"{sys.argv[0]}"' if " " in sys.argv[0] else sys.argv[0]
-                subprocess.Popen(f"{sys.executable} {script}", shell=True)
-                sys.exit()
-            else:
-                top.destroy()
+            # Cerrar ventana y pedir reinicio
+            top.destroy()
+            self.solicitar_reinicio()
 
-        ttk.Button(fr, text="💾 GUARDAR TODA LA CONFIGURACIÓN", bootstyle="success", command=guardar_cambios).pack(fill=X, pady=20)
-
-        
-
-        # --- GUARDAR ---
+        ttk.Button(
+            fr,
+            text="💾 GUARDAR TODA LA CONFIGURACIÓN",
+            bootstyle="success",
+            command=guardar_cambios
+        ).pack(fill=X, pady=20)
         
     
     def abrir_editor_temas(self):
@@ -6237,12 +6446,14 @@ class SistemaInventario:
 
         canvas_mpl.mpl_connect("motion_notify_event", on_hover)
 
-        self.mi_animacion = animation.FuncAnimation(
+        self._anim_ref = animation.FuncAnimation(
             fig, animar,
             frames=FRAMES + 1,
             interval=20,
             blit=False,
             repeat=False)
+        canvas_mpl._anim_consumo = self._anim_ref
+
         
     def _cambiar_top_n(self, n):
         """Cambia el Top N de la gráfica y la regenera"""
@@ -6251,286 +6462,554 @@ class SistemaInventario:
 
         
     def exportar_excel_consumo(self):
-        """
-        Exporta el reporte de consumo a Excel con tabla y gráfica.
-        Compatible con los nuevos campos de fecha DD/MM/AAAA.
-        """
         from openpyxl import Workbook
         from openpyxl.styles import (Font, Alignment, PatternFill,
                                       Border, Side as ExcelSide)
-        from openpyxl.chart import BarChart, Reference
+        from openpyxl.utils import get_column_letter
 
-        # ── Verificar que hay datos ───────────────────────────────────
+        # ── Verificar que hay datos en la tabla ───────────────────────
         filas_tabla = self.tree_consumo.get_children()
         if not filas_tabla:
             messagebox.showwarning(
                 "Sin datos",
                 "Primero genera el reporte antes de exportar.",
-                parent=self.root)
+                parent=self.root
+            )
             return
 
-        # ── Pedir ruta ────────────────────────────────────────────────
+        # ── Pedir ruta de guardado ────────────────────────────────────
         ruta = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             filetypes=[("Excel", "*.xlsx")],
-            initialfile="Reporte_Consumo.xlsx",
-            title="Guardar Reporte de Consumo")
+            initialfile="Reporte_Consumo_Detallado.xlsx",
+            title="Guardar Reporte de Consumo Detallado"
+        )
         if not ruta:
             return
 
+        # ── Leer fechas del filtro activo ─────────────────────────────
+        tipo = self.var_tipo_reporte.get()
         try:
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Consumo"
-
-            # ── Estilos ───────────────────────────────────────────────
-            c_prim   = self.tema_actual.get("color_primario", "#1F4E79")
-            hex_prim = c_prim.lstrip("#")
-            hex_gris = "F2F2F2"
-            hex_blnc = "FFFFFF"
-
-            thin  = ExcelSide(border_style="thin", color="CCCCCC")
-            borde = Border(
-                top=thin, left=thin,
-                right=thin, bottom=thin)
-
-            fuente_titulo = Font(bold=True, size=14,
-                                  color=hex_prim, name="Segoe UI")
-            fuente_subtit = Font(bold=True, size=10,
-                                  color="444444", name="Segoe UI")
-            fuente_header = Font(bold=True, size=10,
-                                  color=hex_blnc, name="Segoe UI")
-            fuente_normal = Font(size=10, name="Segoe UI")
-            fuente_total  = Font(bold=True, size=10,
-                                  color=hex_prim, name="Segoe UI")
-
-            fill_header = PatternFill(
-                fill_type="solid", fgColor=hex_prim)
-            fill_gris   = PatternFill(
-                fill_type="solid", fgColor=hex_gris)
-            fill_total  = PatternFill(
-                fill_type="solid", fgColor="EBF3FB")
-
-            centro = Alignment(
-                horizontal="center", vertical="center")
-            izq    = Alignment(
-                horizontal="left", vertical="center",
-                wrap_text=True)
-
-            # ── Encabezados institucionales ───────────────────────────
-            h1 = self.db.get_config("HEADER_L1") or "INSTITUCIÓN"
-            h2 = self.db.get_config("HEADER_L2") or "SUBDIRECCIÓN"
-            h4 = self.db.get_config("HEADER_L4") or "DEPARTAMENTO"
-
-            ws.merge_cells("A1:F1")
-            ws["A1"]           = h1
-            ws["A1"].font      = fuente_titulo
-            ws["A1"].alignment = centro
-
-            ws.merge_cells("A2:F2")
-            ws["A2"]           = h2
-            ws["A2"].font      = fuente_subtit
-            ws["A2"].alignment = centro
-
-            ws.merge_cells("A3:F3")
-            ws["A3"]           = h4
-            ws["A3"].font      = fuente_subtit
-            ws["A3"].alignment = centro
-
-            # ── Título del reporte ────────────────────────────────────
-            tipo = self.var_tipo_reporte.get()
-
-            titulos_tipo = {
-                "PERIODO":         "REPORTE DE CONSUMO POR PERIODO",
-                "PERIODO_PARTIDA": "REPORTE DE CONSUMO POR PERIODO Y PARTIDA",
-                "GENERAL_PARTIDA": "REPORTE DE CONSUMO GENERAL POR PARTIDA"
-            }
-            titulo_rep = titulos_tipo.get(tipo, "REPORTE DE CONSUMO")
-
-            # ── Subtítulo con parámetros ──────────────────────────────
-            # Leer desde los nuevos campos DD/MM/AAAA
             if tipo in ("PERIODO", "PERIODO_PARTIDA"):
-                try:
-                    dia_i  = self.ent_dia_ini.get().strip().zfill(2)
-                    mes_i  = self.ent_mes_ini.get().strip().zfill(2)
-                    anio_i = self.ent_anio_ini.get().strip()
-                    dia_f  = self.ent_dia_fin.get().strip().zfill(2)
-                    mes_f  = self.ent_mes_fin.get().strip().zfill(2)
-                    anio_f = self.ent_anio_fin.get().strip()
-
-                    str_ini   = f"{dia_i}/{mes_i}/{anio_i}"
-                    str_fin   = f"{dia_f}/{mes_f}/{anio_f}"
-                    subtitulo = f"Periodo: {str_ini}  —  {str_fin}"
-
-                    if tipo == "PERIODO_PARTIDA":
-                        subtitulo += (
-                            f"  |  Partida: "
-                            f"{self.cb_partida_consumo.get()}")
-                except:
-                    subtitulo = "Periodo no disponible"
+                dia_i  = self.ent_dia_ini.get().strip().zfill(2)
+                mes_i  = self.ent_mes_ini.get().strip().zfill(2)
+                anio_i = self.ent_anio_ini.get().strip()
+                dia_f  = self.ent_dia_fin.get().strip().zfill(2)
+                mes_f  = self.ent_mes_fin.get().strip().zfill(2)
+                anio_f = self.ent_anio_fin.get().strip()
+                str_ini    = f"{dia_i}/{mes_i}/{anio_i}"
+                str_fin    = f"{dia_f}/{mes_f}/{anio_f}"
+                fecha_ini  = datetime(int(anio_i), int(mes_i), int(dia_i))
+                fecha_fin  = datetime(int(anio_f), int(mes_f), int(dia_f), 23, 59, 59)
+                subtitulo  = f"Periodo: {str_ini}  —  {str_fin}"
+                if tipo == "PERIODO_PARTIDA":
+                    subtitulo += f"  |  Partida: {self.cb_partida_consumo.get()}"
             else:
-                subtitulo = (
-                    f"Partida: {self.cb_partida_consumo.get()}"
-                    f"  |  Todo el historial")
+                fecha_ini = None
+                fecha_fin = None
+                subtitulo = f"Partida: {self.cb_partida_consumo.get()}  |  Todo el historial"
+                str_ini = str_fin = "General"
+        except Exception as e:
+            messagebox.showerror("Error de fechas", f"Verifica los filtros: {e}")
+            return
 
-            ws.merge_cells("A5:F5")
-            ws["A5"] = titulo_rep
-            ws["A5"].font = Font(
-                bold=True, size=13,
-                color=hex_prim, name="Segoe UI")
-            ws["A5"].alignment = centro
+        titulos_tipo = {
+            "PERIODO":         "REPORTE DE CONSUMO POR PERIODO",
+            "PERIODO_PARTIDA": "REPORTE DE CONSUMO POR PERIODO Y PARTIDA",
+            "GENERAL_PARTIDA": "REPORTE DE CONSUMO GENERAL POR PARTIDA"
+        }
+        titulo_rep = titulos_tipo.get(tipo, "REPORTE DE CONSUMO")
 
-            ws.merge_cells("A6:F6")
-            ws["A6"] = subtitulo
-            ws["A6"].font = Font(
-                size=10, italic=True,
-                color="555555", name="Segoe UI")
-            ws["A6"].alignment = centro
+        # ── Encabezados institucionales ───────────────────────────────
+        h1 = self.db.get_config("HEADER_L1") or "INSTITUCIÓN"
+        h2 = self.db.get_config("HEADER_L2") or "SUBDIRECCIÓN"
+        h4 = self.db.get_config("HEADER_L4") or "DEPARTAMENTO"
 
-            # ── Encabezado de tabla ───────────────────────────────────
-            fila_hdr = 8
-            headers  = ["N°", "PARTIDA", "MATERIAL / PRODUCTO",
-                         "CONSUMO (Pzas)", "% DEL TOTAL", "ACUMULADO"]
+        # ── Colores del tema ──────────────────────────────────────────
+        c_prim   = self.tema_actual.get("color_primario", "#1F4E79")
+        hex_prim = c_prim.lstrip("#")
 
-            for col, texto in enumerate(headers, 1):
-                cell           = ws.cell(
-                    row=fila_hdr, column=col, value=texto)
-                cell.font      = fuente_header
-                cell.fill      = fill_header
-                cell.alignment = centro
-                cell.border    = borde
+        # ── Estilos reutilizables ─────────────────────────────────────
+        thin   = ExcelSide(border_style="thin",   color="CCCCCC")
+        medium = ExcelSide(border_style="medium",  color="888888")
+        borde  = Border(top=thin,   left=thin,   right=thin,   bottom=thin)
+        borde_m= Border(top=medium, left=medium, right=medium, bottom=medium)
 
-            # ── Datos desde la tabla visual ───────────────────────────
-            fila_dat   = fila_hdr + 1
-            total_pzas = 0
-            acumulado  = 0
-            datos_graf = []
+        centro = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        izq    = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+        der    = Alignment(horizontal="right",  vertical="center")
 
-            for i, item_id in enumerate(filas_tabla):
-                vals = self.tree_consumo.item(item_id)['values']
-                rank    = vals[0]
-                partida = vals[1]
-                mat     = vals[2]
-                cant    = float(str(vals[3]).replace(",", ""))
-                pct     = vals[4]
+        fill_prim    = PatternFill(fill_type="solid", fgColor=hex_prim)
+        fill_gris    = PatternFill(fill_type="solid", fgColor="F2F2F2")
+        fill_azul_c  = PatternFill(fill_type="solid", fgColor="EBF3FB")
+        fill_verde   = PatternFill(fill_type="solid", fgColor="E8F5E9")
+        fill_amarillo= PatternFill(fill_type="solid", fgColor="FFF9C4")
+        fill_rojo_c  = PatternFill(fill_type="solid", fgColor="FFEBEE")
+        fill_total   = PatternFill(fill_type="solid", fgColor="D0E8FF")
 
-                total_pzas += cant
-                acumulado  += cant
-                datos_graf.append((mat[:35], cant))
+        f_titulo  = Font(bold=True, size=14, color=hex_prim,    name="Segoe UI")
+        f_subtit  = Font(bold=True, size=10, color="444444",    name="Segoe UI")
+        f_header  = Font(bold=True, size=10, color="FFFFFF",    name="Segoe UI")
+        f_normal  = Font(size=10,                               name="Segoe UI")
+        f_bold    = Font(bold=True, size=10,                    name="Segoe UI")
+        f_total   = Font(bold=True, size=11, color=hex_prim,    name="Segoe UI")
+        f_mat_tit = Font(bold=True, size=11, color="FFFFFF",    name="Segoe UI")
+        f_rojo    = Font(bold=True, size=10, color="C00000",    name="Segoe UI")
+        f_verde   = Font(bold=True, size=10, color="1B5E20",    name="Segoe UI")
 
-                ws.cell(row=fila_dat, column=1,
-                        value=rank).alignment = centro
-                ws.cell(row=fila_dat, column=2,
-                        value=partida).alignment = centro
-                ws.cell(row=fila_dat, column=3,
-                        value=mat).alignment = izq
-                ws.cell(row=fila_dat, column=4,
-                        value=cant).alignment = centro
-                ws.cell(row=fila_dat, column=5,
-                        value=pct).alignment = centro
-                ws.cell(row=fila_dat, column=6,
-                        value=acumulado).alignment = centro
+        def cel(ws, row, col, valor, fuente=None, alin=None, relleno=None, brd=None):
+            c = ws.cell(row=row, column=col, value=valor)
+            if fuente:  c.font      = fuente
+            if alin:    c.alignment = alin
+            if relleno: c.fill      = relleno
+            if brd:     c.border    = brd
+            return c
 
-                for col in range(1, 7):
-                    cell        = ws.cell(row=fila_dat, column=col)
-                    cell.font   = fuente_normal
-                    cell.border = borde
-                    if i % 2 == 0:
-                        cell.fill = fill_gris
-
-                fila_dat += 1
-
-            # ── Fila TOTAL ────────────────────────────────────────────
-            ws.merge_cells(f"A{fila_dat}:C{fila_dat}")
-            ws[f"A{fila_dat}"]           = "TOTAL GENERAL"
-            ws[f"A{fila_dat}"].font      = fuente_total
-            ws[f"A{fila_dat}"].alignment = centro
-            ws[f"A{fila_dat}"].fill      = fill_total
-
-            ws[f"D{fila_dat}"]           = total_pzas
-            ws[f"D{fila_dat}"].font      = fuente_total
-            ws[f"D{fila_dat}"].alignment = centro
-            ws[f"D{fila_dat}"].fill      = fill_total
-
-            ws[f"E{fila_dat}"]           = "100%"
-            ws[f"E{fila_dat}"].font      = fuente_total
-            ws[f"E{fila_dat}"].alignment = centro
-            ws[f"E{fila_dat}"].fill      = fill_total
-
-            for col in range(1, 7):
-                ws.cell(row=fila_dat, column=col).border = borde
-
-            # ── Anchos de columna ─────────────────────────────────────
-            ws.column_dimensions["A"].width = 6
-            ws.column_dimensions["B"].width = 12
-            ws.column_dimensions["C"].width = 45
-            ws.column_dimensions["D"].width = 16
-            ws.column_dimensions["E"].width = 12
-            ws.column_dimensions["F"].width = 14
-
-            for fila in range(fila_hdr, fila_dat + 1):
+        def encabezado_institucional(ws, num_cols):
+            """Pinta las 4 líneas del membrete en la hoja dada"""
+            letra_fin = get_column_letter(num_cols)
+            for fila, texto, fs in [(1, h1, 13), (2, h2, 10), (3, h4, 10)]:
+                ws.merge_cells(f"A{fila}:{letra_fin}{fila}")
+                c = ws.cell(row=fila, column=1, value=texto)
+                c.font      = Font(bold=True, size=fs, color=hex_prim, name="Segoe UI")
+                c.alignment = centro
                 ws.row_dimensions[fila].height = 20
-            ws.row_dimensions[1].height = 30
-            ws.row_dimensions[5].height = 28
 
-            # ── GRÁFICA DE BARRAS (openpyxl) ──────────────────────────
-            ws_graf = wb.create_sheet(title="Datos Gráfica")
-            ws_graf["A1"] = "Material"
-            ws_graf["B1"] = "Consumo"
+            ws.merge_cells(f"A5:{letra_fin}5")
+            c = ws.cell(row=5, column=1, value=titulo_rep)
+            c.font      = Font(bold=True, size=13, color="FFFFFF", name="Segoe UI")
+            c.alignment = centro
+            c.fill      = fill_prim
+            ws.row_dimensions[5].height = 24
 
-            LIMITE_GRAF = 15
-            for i, (nom, val) in enumerate(
-                    datos_graf[:LIMITE_GRAF], 2):
-                ws_graf.cell(row=i, column=1, value=nom)
-                ws_graf.cell(row=i, column=2, value=val)
+            ws.merge_cells(f"A6:{letra_fin}6")
+            c = ws.cell(row=6, column=1, value=subtitulo)
+            c.font      = Font(italic=True, size=9, color="555555", name="Segoe UI")
+            c.alignment = centro
+            ws.row_dimensions[6].height = 16
 
-            n_datos = min(len(datos_graf), LIMITE_GRAF)
+        # ════════════════════════════════════════════════════════════
+        # HOJA 1 — RESUMEN GENERAL
+        # ════════════════════════════════════════════════════════════
+        wb  = Workbook()
+        ws1 = wb.active
+        ws1.title = "RESUMEN"
 
-            chart             = BarChart()
-            chart.type        = "bar"
-            chart.grouping    = "clustered"
-            chart.title       = titulo_rep
-            chart.y_axis.title = "Material"
-            chart.x_axis.title = "Cantidad (Pzas)"
-            chart.style       = 10
-            chart.width       = 25
-            chart.height      = max(10, n_datos * 0.9)
+        encabezado_institucional(ws1, 6)
 
-            data_ref = Reference(
-                ws_graf,
-                min_col=2, min_row=1,
-                max_col=2, max_row=n_datos + 1)
-            cats_ref = Reference(
-                ws_graf,
-                min_col=1, min_row=2,
-                max_row=n_datos + 1)
+        # Cabecera de tabla resumen
+        fila = 8
+        hdrs = ["N°", "PARTIDA", "MATERIAL / PRODUCTO", "CONSUMO (Pzas)", "% DEL TOTAL", "ACUMULADO"]
+        anchos_res = [5, 10, 45, 16, 12, 14]
 
-            chart.add_data(data_ref, titles_from_data=True)
-            chart.set_categories(cats_ref)
-            chart.series[0].graphicalProperties.solidFill = hex_prim
+        for col, (h, w) in enumerate(zip(hdrs, anchos_res), 1):
+            cel(ws1, fila, col, h, fuente=f_header, alin=centro, relleno=fill_prim, brd=borde)
+            ws1.column_dimensions[get_column_letter(col)].width = w
 
-            ws.add_chart(chart, f"A{fila_dat + 3}")
+        ws1.row_dimensions[fila].height = 20
+        fila += 1
 
-            # ── Guardar ───────────────────────────────────────────────
+        total_pzas = 0
+        acumulado  = 0
+        datos_resumen = []
+
+        for item_id in filas_tabla:
+            vals = self.tree_consumo.item(item_id)['values']
+            cant = float(str(vals[3]).replace(",", ""))
+            datos_resumen.append({
+                "rank":    vals[0],
+                "partida": vals[1],
+                "mat":     vals[2],
+                "cant":    cant,
+                "pct":     vals[4]
+            })
+            total_pzas += cant
+
+        for i, d in enumerate(datos_resumen):
+            acumulado += d["cant"]
+            fill_fila = fill_gris if i % 2 == 0 else None
+
+            cant_fmt = int(d["cant"]) if d["cant"] == int(d["cant"]) else d["cant"]
+            acum_fmt = int(acumulado) if acumulado == int(acumulado) else round(acumulado, 2)
+
+            cel(ws1, fila, 1, d["rank"],    fuente=f_normal, alin=centro, relleno=fill_fila, brd=borde)
+            cel(ws1, fila, 2, d["partida"], fuente=f_normal, alin=centro, relleno=fill_fila, brd=borde)
+            cel(ws1, fila, 3, d["mat"],     fuente=f_normal, alin=izq,    relleno=fill_fila, brd=borde)
+            cel(ws1, fila, 4, cant_fmt,     fuente=f_bold,   alin=centro, relleno=fill_fila, brd=borde)
+            cel(ws1, fila, 5, d["pct"],     fuente=f_normal, alin=centro, relleno=fill_fila, brd=borde)
+            cel(ws1, fila, 6, acum_fmt,     fuente=f_normal, alin=centro, relleno=fill_fila, brd=borde)
+            ws1.row_dimensions[fila].height = 18
+            fila += 1
+
+        # Fila TOTAL resumen
+        ws1.merge_cells(f"A{fila}:C{fila}")
+        cel(ws1, fila, 1, "TOTAL GENERAL",
+            fuente=f_total, alin=centro, relleno=fill_total, brd=borde)
+        total_fmt = int(total_pzas) if total_pzas == int(total_pzas) else round(total_pzas, 2)
+        cel(ws1, fila, 4, total_fmt,
+            fuente=f_total, alin=centro, relleno=fill_total, brd=borde)
+        cel(ws1, fila, 5, "100%",
+            fuente=f_total, alin=centro, relleno=fill_total, brd=borde)
+        cel(ws1, fila, 6, total_fmt,
+            fuente=f_total, alin=centro, relleno=fill_total, brd=borde)
+        ws1.row_dimensions[fila].height = 22
+        for col in range(1, 7):
+            ws1.cell(row=fila, column=col).border = borde_m
+
+        # Congelar encabezados
+        ws1.freeze_panes = "A9"
+
+        # ════════════════════════════════════════════════════════════
+        # HOJA 2 — DETALLE POR MATERIAL
+        # Cada material tiene su propio bloque:
+        #   [Encabezado azul con nombre del material]
+        #   [Columnas: Fecha | Área/Destino | Solicita | Cantidad]
+        #   [Filas de cada salida]
+        #   [Fila TOTAL del material en verde]
+        #   [Espacio separador]
+        # ════════════════════════════════════════════════════════════
+        ws2 = wb.create_sheet(title="DETALLE POR MATERIAL")
+        encabezado_institucional(ws2, 5)
+
+        # Anchos de columna hoja detalle
+        anchos_det = {"A": 18, "B": 12, "C": 38, "D": 25, "E": 14}
+        for col_letra, ancho in anchos_det.items():
+            ws2.column_dimensions[col_letra].width = ancho
+
+        fila2 = 8
+
+        # Construir SQL para traer detalle real de cada material
+        for idx, d in enumerate(datos_resumen, 1):
+            nombre_mat = d["mat"]
+            partida    = d["partida"]
+
+            # ── Consultar historial detallado de este material ────────
+            sql_det = """
+                SELECT fecha_hora, destino, responsable, cantidad
+                FROM historial
+                WHERE material = ?
+                  AND (
+                      tipo LIKE '%SALIDA%'
+                      OR tipo LIKE '%HISTORICO (-)%'
+                  )
+            """
+            params_det = [nombre_mat]
+
+            if fecha_ini and fecha_fin:
+                sql_det += """
+                    AND (
+                        CAST(substr(fecha_hora, 7, 4) AS INTEGER) * 10000
+                        + CAST(substr(fecha_hora, 4, 2) AS INTEGER) * 100
+                        + CAST(substr(fecha_hora, 1, 2) AS INTEGER)
+                    ) BETWEEN ? AND ?
+                """
+                params_det.extend([
+                    fecha_ini.year * 10000 + fecha_ini.month * 100 + fecha_ini.day,
+                    fecha_fin.year * 10000 + fecha_fin.month * 100 + fecha_fin.day
+                ])
+
+            if tipo == "PERIODO_PARTIDA" or tipo == "GENERAL_PARTIDA":
+                sql_det += " AND (SELECT partida FROM inventario WHERE material = ?) = ?"
+                params_det.extend([nombre_mat, partida])
+
+            sql_det += " ORDER BY fecha_hora ASC"
+            movimientos = self.db.consultar(sql_det, tuple(params_det))
+
+            cant_total_mat = d["cant"]
+            cant_fmt_mat   = int(cant_total_mat) if cant_total_mat == int(cant_total_mat) else cant_total_mat
+
+            # ── Encabezado azul del material ──────────────────────────
+            ws2.merge_cells(f"A{fila2}:E{fila2}")
+            c_enc = ws2.cell(
+                row=fila2, column=1,
+                value=f"  #{idx}  |  PARTIDA: {partida}  |  {nombre_mat.upper()}"
+            )
+            c_enc.font      = f_mat_tit
+            c_enc.fill      = fill_prim
+            c_enc.alignment = izq
+            c_enc.border    = borde_m
+            ws2.row_dimensions[fila2].height = 22
+            for col in range(2, 6):
+                ws2.cell(row=fila2, column=col).fill   = fill_prim
+                ws2.cell(row=fila2, column=col).border = borde_m
+            fila2 += 1
+
+            # ── Subencabezado de columnas ─────────────────────────────
+            sub_hdrs = ["FECHA", "PARTIDA", "ÁREA / DESTINO", "SOLICITA", "CANTIDAD"]
+            for col, sh in enumerate(sub_hdrs, 1):
+                c_sh = ws2.cell(row=fila2, column=col, value=sh)
+                c_sh.font      = Font(bold=True, size=9, color="FFFFFF", name="Segoe UI")
+                c_sh.fill      = PatternFill(fill_type="solid", fgColor="2E5F8A")
+                c_sh.alignment = centro
+                c_sh.border    = borde
+            ws2.row_dimensions[fila2].height = 18
+            fila2 += 1
+
+            # ── Filas de movimientos ──────────────────────────────────
+            if movimientos:
+                for j, mov in enumerate(movimientos):
+                    cant_mov = mov['cantidad']
+                    cant_mov_fmt = int(cant_mov) if float(cant_mov) == int(float(cant_mov)) else round(float(cant_mov), 2)
+                    fill_row = fill_azul_c if j % 2 == 0 else None
+
+                    ws2.cell(row=fila2, column=1, value=mov['fecha_hora'] or "").font      = f_normal
+                    ws2.cell(row=fila2, column=1).alignment = centro
+                    ws2.cell(row=fila2, column=1).fill      = fill_row or PatternFill()
+                    ws2.cell(row=fila2, column=1).border    = borde
+
+                    ws2.cell(row=fila2, column=2, value=partida).font      = f_normal
+                    ws2.cell(row=fila2, column=2).alignment = centro
+                    ws2.cell(row=fila2, column=2).fill      = fill_row or PatternFill()
+                    ws2.cell(row=fila2, column=2).border    = borde
+
+                    ws2.cell(row=fila2, column=3, value=(mov['destino'] or "S/N").upper()).font      = f_normal
+                    ws2.cell(row=fila2, column=3).alignment = izq
+                    ws2.cell(row=fila2, column=3).fill      = fill_row or PatternFill()
+                    ws2.cell(row=fila2, column=3).border    = borde
+
+                    ws2.cell(row=fila2, column=4, value=(mov['responsable'] or "S/N").upper()).font  = f_normal
+                    ws2.cell(row=fila2, column=4).alignment = izq
+                    ws2.cell(row=fila2, column=4).fill      = fill_row or PatternFill()
+                    ws2.cell(row=fila2, column=4).border    = borde
+
+                    ws2.cell(row=fila2, column=5, value=cant_mov_fmt).font      = f_bold
+                    ws2.cell(row=fila2, column=5).alignment = centro
+                    ws2.cell(row=fila2, column=5).fill      = fill_row or PatternFill()
+                    ws2.cell(row=fila2, column=5).border    = borde
+
+                    ws2.row_dimensions[fila2].height = 16
+                    fila2 += 1
+            else:
+                # Sin movimientos en el periodo
+                ws2.merge_cells(f"A{fila2}:E{fila2}")
+                c_nm = ws2.cell(row=fila2, column=1,
+                                value="— Sin movimientos en el periodo seleccionado —")
+                c_nm.font      = Font(italic=True, size=9, color="888888", name="Segoe UI")
+                c_nm.alignment = centro
+                c_nm.fill      = fill_amarillo
+                for col in range(1, 6):
+                    ws2.cell(row=fila2, column=col).border = borde
+                ws2.row_dimensions[fila2].height = 16
+                fila2 += 1
+
+            # ── Fila TOTAL del material ───────────────────────────────
+            ws2.merge_cells(f"A{fila2}:D{fila2}")
+            c_tot = ws2.cell(
+                row=fila2, column=1,
+                value=f"TOTAL CONSUMIDO — {nombre_mat[:50]}"
+            )
+            c_tot.font      = f_verde
+            c_tot.fill      = fill_verde
+            c_tot.alignment = der
+            c_tot.border    = borde_m
+
+            for col in range(2, 5):
+                ws2.cell(row=fila2, column=col).fill   = fill_verde
+                ws2.cell(row=fila2, column=col).border = borde_m
+
+            c_tot5 = ws2.cell(row=fila2, column=5, value=cant_fmt_mat)
+            c_tot5.font      = Font(bold=True, size=12, color="1B5E20", name="Segoe UI")
+            c_tot5.fill      = fill_verde
+            c_tot5.alignment = centro
+            c_tot5.border    = borde_m
+            ws2.row_dimensions[fila2].height = 20
+            fila2 += 1
+
+            # ── Fila separadora entre materiales ──────────────────────
+            for col in range(1, 6):
+                c_sep = ws2.cell(row=fila2, column=col, value="")
+                c_sep.fill = PatternFill(fill_type="solid", fgColor="EEEEEE")
+            ws2.row_dimensions[fila2].height = 8
+            fila2 += 1
+
+        # ── Congelar encabezado ───────────────────────────────────────
+        ws2.freeze_panes = "A9"
+
+        # ════════════════════════════════════════════════════════════
+        # HOJA 3 — RESUMEN COMPACTO POR ÁREA
+        # Muestra cuánto consumió CADA ÁREA en el periodo
+        # ════════════════════════════════════════════════════════════
+        ws3 = wb.create_sheet(title="CONSUMO POR ÁREA")
+        encabezado_institucional(ws3, 4)
+
+        anchos_area = {"A": 35, "B": 20, "C": 16, "D": 16}
+        for col_l, ancho in anchos_area.items():
+            ws3.column_dimensions[col_l].width = ancho
+
+        fila3 = 8
+
+        # Cabecera
+        hdrs_area = ["ÁREA / DESTINO", "MATERIAL", "PARTIDA", "CANTIDAD"]
+        for col, h in enumerate(hdrs_area, 1):
+            cel(ws3, fila3, col, h, fuente=f_header, alin=centro, relleno=fill_prim, brd=borde)
+        ws3.row_dimensions[fila3].height = 20
+        fila3 += 1
+
+        # Consultar salidas agrupadas por área
+        sql_areas = """
+            SELECT
+                UPPER(COALESCE(h.destino, 'SIN ÁREA')) AS area,
+                h.material,
+                COALESCE(i.partida, 'S/P')             AS partida,
+                SUM(h.cantidad)                         AS total
+            FROM historial h
+            LEFT JOIN inventario i ON h.material = i.material
+            WHERE (
+                h.tipo LIKE '%SALIDA%'
+                OR h.tipo LIKE '%HISTORICO (-)%'
+            )
+        """
+        params_areas = []
+
+        if fecha_ini and fecha_fin:
+            sql_areas += """
+                AND (
+                    CAST(substr(h.fecha_hora, 7, 4) AS INTEGER) * 10000
+                    + CAST(substr(h.fecha_hora, 4, 2) AS INTEGER) * 100
+                    + CAST(substr(h.fecha_hora, 1, 2) AS INTEGER)
+                ) BETWEEN ? AND ?
+            """
+            params_areas.extend([
+                fecha_ini.year * 10000 + fecha_ini.month * 100 + fecha_ini.day,
+                fecha_fin.year * 10000 + fecha_fin.month * 100 + fecha_fin.day
+            ])
+
+        if tipo in ("PERIODO_PARTIDA", "GENERAL_PARTIDA"):
+            partida_f = self.cb_partida_consumo.get()
+            sql_areas += " AND i.partida = ?"
+            params_areas.append(partida_f)
+
+        sql_areas += " GROUP BY area, h.material, i.partida ORDER BY area ASC, total DESC"
+
+        datos_areas = self.db.consultar(sql_areas, tuple(params_areas))
+
+        area_anterior = None
+        total_area    = 0
+        fila_inicio_area = fila3
+
+        for k, da in enumerate(datos_areas):
+            area_actual = da['area'] or "SIN ÁREA"
+
+            # ── Cambio de área: pintar subtotal de la anterior ────────
+            if area_anterior is not None and area_actual != area_anterior:
+                ws3.merge_cells(f"A{fila3}:C{fila3}")
+                c_sa = ws3.cell(row=fila3, column=1,
+                                value=f"SUBTOTAL  —  {area_anterior}")
+                c_sa.font      = f_rojo
+                c_sa.fill      = fill_rojo_c
+                c_sa.alignment = der
+                c_sa.border    = borde_m
+                for col in range(2, 4):
+                    ws3.cell(row=fila3, column=col).fill   = fill_rojo_c
+                    ws3.cell(row=fila3, column=col).border = borde_m
+                tot_area_fmt = int(total_area) if total_area == int(total_area) else round(total_area, 2)
+                c_sa4 = ws3.cell(row=fila3, column=4, value=tot_area_fmt)
+                c_sa4.font      = Font(bold=True, size=11, color="C00000", name="Segoe UI")
+                c_sa4.fill      = fill_rojo_c
+                c_sa4.alignment = centro
+                c_sa4.border    = borde_m
+                ws3.row_dimensions[fila3].height = 20
+                fila3 += 1
+
+                # Separador
+                for col in range(1, 5):
+                    ws3.cell(row=fila3, column=col).fill = PatternFill(
+                        fill_type="solid", fgColor="DDDDDD")
+                ws3.row_dimensions[fila3].height = 6
+                fila3 += 1
+                total_area = 0
+
+            # ── Encabezado de nueva área ──────────────────────────────
+            if area_actual != area_anterior:
+                ws3.merge_cells(f"A{fila3}:D{fila3}")
+                c_area = ws3.cell(
+                    row=fila3, column=1,
+                    value=f"  📦  {area_actual}"
+                )
+                c_area.font      = Font(bold=True, size=10, color="FFFFFF", name="Segoe UI")
+                c_area.fill      = PatternFill(fill_type="solid", fgColor="2E5F8A")
+                c_area.alignment = izq
+                c_area.border    = borde_m
+                for col in range(2, 5):
+                    ws3.cell(row=fila3, column=col).fill   = PatternFill(
+                        fill_type="solid", fgColor="2E5F8A")
+                    ws3.cell(row=fila3, column=col).border = borde_m
+                ws3.row_dimensions[fila3].height = 20
+                fila3 += 1
+                area_anterior = area_actual
+
+            # ── Renglón del material ──────────────────────────────────
+            cant_da     = float(da['total'])
+            cant_da_fmt = int(cant_da) if cant_da == int(cant_da) else round(cant_da, 2)
+            fill_alt    = fill_azul_c if k % 2 == 0 else None
+
+            ws3.cell(row=fila3, column=1, value=(da['material'] or "").upper()).font      = f_normal
+            ws3.cell(row=fila3, column=1).alignment = izq
+            ws3.cell(row=fila3, column=1).fill      = fill_alt or PatternFill()
+            ws3.cell(row=fila3, column=1).border    = borde
+
+            ws3.cell(row=fila3, column=2, value="").border = borde
+            ws3.cell(row=fila3, column=2).fill = fill_alt or PatternFill()
+
+            ws3.cell(row=fila3, column=3, value=(da['partida'] or "")).font      = f_normal
+            ws3.cell(row=fila3, column=3).alignment = centro
+            ws3.cell(row=fila3, column=3).fill      = fill_alt or PatternFill()
+            ws3.cell(row=fila3, column=3).border    = borde
+
+            ws3.cell(row=fila3, column=4, value=cant_da_fmt).font      = f_bold
+            ws3.cell(row=fila3, column=4).alignment = centro
+            ws3.cell(row=fila3, column=4).fill      = fill_alt or PatternFill()
+            ws3.cell(row=fila3, column=4).border    = borde
+
+            ws3.row_dimensions[fila3].height = 16
+            total_area += cant_da
+            fila3 += 1
+
+        # Subtotal del último grupo de área
+        if area_anterior:
+            ws3.merge_cells(f"A{fila3}:C{fila3}")
+            c_sa = ws3.cell(row=fila3, column=1,
+                            value=f"SUBTOTAL  —  {area_anterior}")
+            c_sa.font      = f_rojo
+            c_sa.fill      = fill_rojo_c
+            c_sa.alignment = der
+            c_sa.border    = borde_m
+            for col in range(2, 4):
+                ws3.cell(row=fila3, column=col).fill   = fill_rojo_c
+                ws3.cell(row=fila3, column=col).border = borde_m
+            tot_area_fmt = int(total_area) if total_area == int(total_area) else round(total_area, 2)
+            c_sa4 = ws3.cell(row=fila3, column=4, value=tot_area_fmt)
+            c_sa4.font      = Font(bold=True, size=11, color="C00000", name="Segoe UI")
+            c_sa4.fill      = fill_rojo_c
+            c_sa4.alignment = centro
+            c_sa4.border    = borde_m
+            ws3.row_dimensions[fila3].height = 20
+            fila3 += 1
+
+        ws3.freeze_panes = "A9"
+
+        # ── Guardar y abrir ───────────────────────────────────────────
+        try:
             wb.save(ruta)
             messagebox.showinfo(
-                "✅  Exportado",
-                f"Reporte guardado correctamente:\n{ruta}",
-                parent=self.root)
+                "✅ Exportado correctamente",
+                f"Reporte generado con 3 hojas:\n\n"
+                f"  📋  RESUMEN  —  {len(datos_resumen)} materiales\n"
+                f"  🔍  DETALLE POR MATERIAL  —  salida a salida\n"
+                f"  🏢  CONSUMO POR ÁREA  —  agrupado por destino\n\n"
+                f"Guardado en:\n{ruta}",
+                parent=self.root
+            )
             os.startfile(ruta)
-
         except PermissionError:
             messagebox.showwarning(
                 "Archivo abierto",
-                "No se pudo guardar.\n"
-                "El archivo está abierto en Excel.\n"
+                "No se pudo guardar. El archivo está abierto en Excel.\n"
                 "Ciérralo e intenta de nuevo.",
-                parent=self.root)
+                parent=self.root
+            )
         except Exception as e:
-            messagebox.showerror(
-                "Error al exportar",
-                f"No se pudo generar el archivo:\n{e}",
-                parent=self.root)
+            messagebox.showerror("Error al guardar", f"{e}", parent=self.root)
             
     def tiene_permiso(self, accion):
         """
