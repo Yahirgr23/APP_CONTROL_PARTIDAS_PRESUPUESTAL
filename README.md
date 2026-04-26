@@ -1,28 +1,44 @@
-# 📊 Sistema de Gestión de Partidas Presupuestales
+Sistema de Control de Partidas Presupuestales
+Descripción del Proyecto
+Este software de escritorio fue diseñado para digitalizar y optimizar la gestión administrativa de inventarios y presupuestos. La aplicación permite un seguimiento riguroso de las partidas contables, facilitando la toma de decisiones mediante una interfaz intuitiva y reportes técnicos automatizados.
 
-Una aplicación diseñada para el control de partidas presupuestales,inventario, análisis y seguimiento de las partidas presupuestales de ININDETEC. 
+✨ Características Principales
+Gestión de Inventario: Control detallado de entradas, salidas y existencias vinculadas a partidas específicas.
 
-Este proyecto permite visualizar fácilmente la asignación de recursos, los montos ejercidos y los saldos disponibles en tiempo real.
+Interfaz Moderna: Desarrollada con Tkinter y ttkbootstrap, ofreciendo una experiencia de usuario (UX) limpia, profesional y con soporte para temas visuales.
 
-## 🚀 Características Principales
+Validación de Datos: Sistema de seguridad que previene errores humanos en la captura de montos y códigos presupuestales.
 
-* **Clasificación Automática:** Organiza los gastos por capítulo, concepto y partida específica.
-* **Monitoreo de Saldos:** Calcula la diferencia entre el presupuesto apL.
-* **Generación de Reportes:** Exporta la entrada y salida de materiales de todas las partidas
+Reportes Técnicos: Generación de resúmenes administrativos para auditorías o revisiones contables.
 
-## 🛠️ Tecnologías Utilizadas
+Base de Datos Local: Implementación eficiente para el manejo de registros persistentes sin necesidad de conexión a internet.
 
-* Python 3.11
-* Tkinter,Pillow Pandas,numpy
+🛠️ Stack Tecnológico
+Lenguaje: Python 3.x.
 
-## 📋 Estructura de las Partidas
+GUI: Tkinter / ttkbootstrap (para estilos avanzados).
 
-El sistema maneja la estructura estándar de partidas para la INIDETEC, aunque el sotfware fue echo para perzonalizacion propia, incluso se puede usar solo para tener un control de 
-el invetario
+Lógica: Programación Orientada a Objetos (POO) para facilitar el mantenimiento.
 
-## ⚙️ Instalación y Configuración
+🚀 Instalación y Uso
+Clonar el repositorio:
 
-Sigue estos pasos para ejecutar el proyecto en tu entorno local:
+Bash
+git clone https://github.com/tu-usuario/app_control_partidas_presupuestal.git
+Instalar dependencias:
 
-1. Clona este repositorio:
-2. Instale librerias solicitadas
+Bash
+pip install -r requirements.txt
+Ejecutar la aplicación:
+
+Bash
+python "PROYECTO U.py"
+📂 Estructura del Proyecto
+PROYECTO U.py: Punto de entrada principal de la aplicación.
+
+requirements.txt: Lista de librerías necesarias para el entorno.
+
+README.md: Documentación detallada del sistema.
+
+💡 Logro Destacado
+Este proyecto fue desarrollado con el objetivo de transformar procesos manuales y propensos a errores en una solución estable, segura y escalable, logrando una mayor eficiencia en el control de activos y presupuestos institucionales.
